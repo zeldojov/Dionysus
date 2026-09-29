@@ -1,0 +1,181 @@
+:root {
+    --ink: #20231f;
+    --muted: #7a8178;
+    --line: #d9ded7;
+    --paper: #fffdf8;
+    --canvas: #edf0eb;
+    --accent: #ce5f45;
+    --accent-soft: #f3ddd6;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    min-height: 100vh;
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+
+.documents-page {
+    width: min(100% - 32px, 940px);
+    margin: 0 auto;
+    padding: 72px 0 96px;
+}
+
+.documents-header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 42px;
+}
+
+.eyebrow {
+    margin: 0 0 6px;
+    color: var(--accent);
+    font-family: "Avenir Next", "Century Gothic", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+}
+
+h1 {
+    margin: 0;
+    font-size: clamp(34px, 6vw, 56px);
+    font-weight: 500;
+    line-height: .95;
+}
+
+.new-document {
+    padding: 12px 17px;
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    background: var(--accent);
+    color: white;
+    cursor: pointer;
+    font: 700 12px "Avenir Next", "Century Gothic", sans-serif;
+    letter-spacing: .04em;
+}
+
+.new-document:hover {
+    background: #b84e38;
+}
+
+.documents-status {
+    margin: 0 0 14px;
+    color: var(--muted);
+    font: 12px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.documents-list {
+    display: grid;
+    gap: 10px;
+}
+
+.document-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 21px 24px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+}
+
+.document-card-link {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    color: inherit;
+    text-decoration: none;
+}
+
+.document-card:hover {
+    border-color: var(--accent);
+    background: #fffaf5;
+}
+
+.document-card-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 8px;
+}
+
+.rename-document,
+.delete-document {
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font: 11px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.rename-document:hover,
+.delete-document:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.rename-document:disabled,
+.delete-document:disabled {
+    cursor: wait;
+    opacity: .6;
+}
+
+.document-card-title {
+    margin: 0 0 5px;
+    font-size: 23px;
+}
+
+.document-card-slug,
+.document-card-date {
+    color: var(--muted);
+    font: 11px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.document-card-date {
+    white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+    .documents-page {
+        width: min(100% - 20px, 940px);
+        padding-top: 36px;
+    }
+
+    .documents-header {
+        align-items: start;
+        flex-direction: column;
+        margin-bottom: 32px;
+    }
+
+    .new-document {
+        width: 100%;
+    }
+
+    .document-card {
+        align-items: start;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .document-card-link {
+        width: 100%;
+        align-items: start;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .document-card-actions {
+        width: 100%;
+    }
+}

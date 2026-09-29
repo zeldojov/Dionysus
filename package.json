@@ -1,0 +1,11 @@
+{
+    "name": "dionysus-browser-tests",
+    "private": true,
+    "scripts": {
+        "test:e2e": "playwright test",
+        "test:unit": "node --test unit/editor-transforms.test.js"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.55.0"
+    }
+}
