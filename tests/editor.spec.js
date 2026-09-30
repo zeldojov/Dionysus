@@ -31,6 +31,11 @@ test("document editing lifecycle works in the browser", async ({ page, request }
 
     const paragraph = page.locator(".paragraph").first();
     await paragraph.fill("Alpha");
+    await expect(page.locator(".paragraph-metrics")).toContainText("5.000 znakova");
+    await expect(page.locator(".paragraph-metrics")).toContainText("0 / 50 formatiranja");
+    await expect(page.locator(".paragraph-metrics")).toContainText("0 / 20 linkova");
+    await expect(page.locator("#document-size-limit")).toContainText("Size");
+    await expect(page.locator("#document-block-limit")).toContainText("Blocks 1 / 10,000");
     await waitForSaved(page);
 
     await page.keyboard.press("Control+Z");
@@ -54,6 +59,45 @@ test("document editing lifecycle works in the browser", async ({ page, request }
     await expect(card).toBeVisible();
     await card.getByRole("button", { name: "Delete" }).click();
     await expect(card).toHaveCount(0);
+});
+
+test("paragraph autosave runs when editing loses focus", async ({ page, request }) => {
+    const documentState = await createDocument(request, `Playwright blur autosave ${Date.now()}`);
+
+    try {
+        await page.goto(`/documents/${documentState.slug}`);
+        await waitForSaved(page);
+        const paragraph = page.locator(".paragraph").first();
+        await paragraph.fill("Saved on blur");
+        await expect(page.locator("#save-state")).toHaveText("Unsaved");
+        await page.locator("#document-title").focus();
+        await expect(page.locator("#save-state")).toHaveText("Saved", { timeout: 5000 });
+    } finally {
+        const response = await request.get(`/documents/${documentState.slug}`);
+        if (response.ok()) await deleteDocument(request, await response.json());
+    }
+});
+
+test("paragraph blur without edits does not save", async ({ page, request }) => {
+    const documentState = await createDocument(request, `Playwright clean blur ${Date.now()}`);
+    const saveRequests = [];
+    page.on("request", (requestEvent) => {
+        if (requestEvent.method() === "PUT" && requestEvent.url().includes(`/documents/${documentState.slug}`)) {
+            saveRequests.push(requestEvent);
+        }
+    });
+
+    try {
+        await page.goto(`/documents/${documentState.slug}`);
+        await waitForSaved(page);
+        await page.locator(".paragraph").first().focus();
+        await page.locator("#document-title").focus();
+        await page.waitForTimeout(900);
+        expect(saveRequests).toHaveLength(0);
+    } finally {
+        const response = await request.get(`/documents/${documentState.slug}`);
+        if (response.ok()) await deleteDocument(request, await response.json());
+    }
 });
 
 test("editor sidebar switches files and restores history previews", async ({ page, request }) => {
@@ -938,10 +982,10 @@ test("paragraph alignment persists without changing source text", async ({ page,
                 paragraphTop: element.getBoundingClientRect().top,
             };
         });
-        expect(initialLayout.paddingRight).toBe("0px");
+        expect(initialLayout.paddingRight).toBe("12px");
         expect(initialLayout.toolsOpacity).toBe("0");
-        expect(initialLayout.toolsRight).toBeCloseTo(initialLayout.rowRight, 0);
-        expect(initialLayout.toolsBottom).toBeLessThanOrEqual(initialLayout.paragraphTop);
+        expect(initialLayout.toolsRight).toBeCloseTo(initialLayout.rowRight - 25, 0);
+        expect(initialLayout.toolsBottom).toBeLessThanOrEqual(initialLayout.paragraphTop + 1);
         const sourceText = "psihologije psihologije";
         await paragraph.fill(sourceText);
         await paragraph.selectText();
@@ -1160,12 +1204,14 @@ test("paste preserves only editor custom formatting", async ({ page, request }) 
         }, { documentId: documentState.id, blockId });
         await expect(paragraph.locator("d-bold")).toHaveText("Custom bold");
         await expect(paragraph.locator("d-link")).toHaveText("Internal link");
+        await waitForSaved(page);
         await page.locator('[data-sidebar-tab="history"]').click();
         await expect(page.locator(".history-preview-header strong").filter({ hasText: "Text paste" })).toHaveCount(2);
 
         await page.reload();
         await waitForSaved(page);
         const plainParagraph = page.locator(".paragraph").first();
+        await plainParagraph.fill("");
         await plainParagraph.evaluate((element) => {
             element.focus();
             const range = document.createRange();

@@ -8,9 +8,19 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 const currentSchemaVersion = 2
+
+const (
+	maxDocumentBlocks       = 10000
+	maxParagraphRunes       = 5000
+	maxDocumentTitleRunes   = 200
+	maxParagraphMarks       = 50
+	maxParagraphLinks       = 20
+	maxDocumentsPerListPage = 100
+)
 
 type documentPayload struct {
 	SchemaVersion int              `json:"schemaVersion"`
@@ -63,9 +73,10 @@ type createDocumentRequest struct {
 	Title string `json:"title"`
 }
 
-type updateDocumentRequest struct {
-	Content  documentPayload `json:"content"`
-	Revision int64           `json:"revision"`
+type updateBlocksRequest struct {
+	Blocks     []paragraphBlock `json:"blocks"`
+	ReplaceAll bool             `json:"replaceAll"`
+	Revision   int64            `json:"revision"`
 }
 
 type renameDocumentRequest struct {
@@ -82,6 +93,9 @@ func (request createDocumentRequest) normalized() (string, string, error) {
 	slug := slugify(title)
 	if slug == "" {
 		return "", "", errors.New("title must contain letters or numbers")
+	}
+	if utf8.RuneCountInString(title) > maxDocumentTitleRunes {
+		return "", "", fmt.Errorf("title exceeds maximum length of %d characters", maxDocumentTitleRunes)
 	}
 	return title, slug, nil
 }
@@ -102,6 +116,9 @@ func (document documentPayload) validate() error {
 	if len(document.Blocks) == 0 {
 		return errors.New("document must contain at least one block")
 	}
+	if len(document.Blocks) > maxDocumentBlocks {
+		return fmt.Errorf("document contains too many blocks; maximum is %d", maxDocumentBlocks)
+	}
 
 	seenIDs := make(map[string]struct{}, len(document.Blocks))
 	for _, block := range document.Blocks {
@@ -118,6 +135,15 @@ func (document documentPayload) validate() error {
 		}
 		if strings.ContainsAny(block.Text, "\r\n") {
 			return errors.New("paragraph text must not contain newline characters")
+		}
+		if utf8.RuneCountInString(block.Text) > maxParagraphRunes {
+			return fmt.Errorf("paragraph exceeds maximum length of %d characters", maxParagraphRunes)
+		}
+		if len(block.Marks) > maxParagraphMarks {
+			return fmt.Errorf("paragraph contains too many marks; maximum is %d", maxParagraphMarks)
+		}
+		if len(block.Links) > maxParagraphLinks {
+			return fmt.Errorf("paragraph contains too many links; maximum is %d", maxParagraphLinks)
 		}
 		switch block.Align {
 		case "", "left", "center", "right", "justify":

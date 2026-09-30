@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,6 +65,38 @@ func TestDocumentPayloadValidate(t *testing.T) {
 			doc:     documentPayload{SchemaVersion: currentSchemaVersion, Blocks: []paragraphBlock{{ID: "p1", Type: "paragraph", Align: "diagonal"}}},
 			wantErr: true,
 		},
+		{
+			name: "too many blocks",
+			doc: documentPayload{
+				SchemaVersion: currentSchemaVersion,
+				Blocks:        make([]paragraphBlock, maxDocumentBlocks+1),
+			},
+			wantErr: true,
+		},
+		{
+			name: "paragraph too long",
+			doc: documentPayload{
+				SchemaVersion: currentSchemaVersion,
+				Blocks:        []paragraphBlock{{ID: "p1", Type: "paragraph", Text: strings.Repeat("a", maxParagraphRunes+1)}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "too many marks",
+			doc: documentPayload{
+				SchemaVersion: currentSchemaVersion,
+				Blocks:        []paragraphBlock{{ID: "p1", Type: "paragraph", Text: "a", Marks: make([]paragraphMark, maxParagraphMarks+1)}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "too many links",
+			doc: documentPayload{
+				SchemaVersion: currentSchemaVersion,
+				Blocks:        []paragraphBlock{{ID: "p1", Type: "paragraph", Text: "a", Links: make([]paragraphLink, maxParagraphLinks+1)}},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -93,6 +128,71 @@ func TestMigrateDocument(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDevelopmentDefaults(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	for _, name := range []string{"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_SSLMODE"} {
+		t.Setenv(name, "")
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig() returned error: %v", err)
+	}
+	if cfg.dbHost != defaultDBHost || cfg.dbPort != defaultDBPort || cfg.dbUser != defaultDBUser || cfg.dbPassword != "dionysus" || cfg.dbName != defaultDBName || cfg.dbSSLMode != defaultSSLMode {
+		t.Fatalf("unexpected development defaults: %+v", cfg)
+	}
+}
+
+func TestLoadConfigProductionRequiresDatabaseEnvironment(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	for _, name := range []string{"DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_SSLMODE"} {
+		t.Setenv(name, "")
+	}
+
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("loadConfig() returned nil error for incomplete production configuration")
+	}
+}
+
+func TestLoadConfigProductionForcesTLS(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("DB_HOST", "db.example.test")
+	t.Setenv("DB_PORT", "5432")
+	t.Setenv("DB_USER", "app")
+	t.Setenv("DB_PASSWORD", "secret")
+	t.Setenv("DB_NAME", "dionysus")
+	t.Setenv("DB_SSLMODE", "disable")
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig() returned error: %v", err)
+	}
+	if cfg.dbSSLMode != "require" {
+		t.Fatalf("production sslmode = %q, want require", cfg.dbSSLMode)
+	}
+}
+
+func TestLoadDotEnv(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), ".env")
+	contents := "# comment\nDIONYSUS_TEST_PLAIN=value\nexport DIONYSUS_TEST_DOUBLE=\"hello world\"\nDIONYSUS_TEST_SINGLE='quoted value'\n"
+	if err := os.WriteFile(filename, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DIONYSUS_TEST_PLAIN", "shell value")
+	if err := loadDotEnv(filename); err != nil {
+		t.Fatalf("loadDotEnv() returned error: %v", err)
+	}
+	if got := os.Getenv("DIONYSUS_TEST_PLAIN"); got != "shell value" {
+		t.Fatalf("shell environment value = %q, want shell value", got)
+	}
+	if got := os.Getenv("DIONYSUS_TEST_DOUBLE"); got != "hello world" {
+		t.Fatalf("double-quoted value = %q, want hello world", got)
+	}
+	if got := os.Getenv("DIONYSUS_TEST_SINGLE"); got != "quoted value" {
+		t.Fatalf("single-quoted value = %q, want quoted value", got)
+	}
+}
+
 func TestSlugify(t *testing.T) {
 	tests := map[string]string{
 		"Moj prvi dokument": "moj-prvi-dokument",
@@ -107,8 +207,21 @@ func TestSlugify(t *testing.T) {
 	}
 }
 
+func TestDocumentTitleLimit(t *testing.T) {
+	_, _, err := (createDocumentRequest{Title: strings.Repeat("a", maxDocumentTitleRunes+1)}).normalized()
+	if err == nil {
+		t.Fatal("normalized() returned nil error for an oversized title")
+	}
+}
+
 func TestDocumentAPI(t *testing.T) {
-	cfg := loadConfig()
+	if os.Getenv("APP_ENV") == "production" {
+		t.Skip("database integration test uses local development defaults")
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
 	db, err := pgxpool.New(context.Background(), cfg.dbConnectionString())
 	if err != nil {
 		t.Skipf("database unavailable: %v", err)
@@ -184,12 +297,12 @@ func TestDocumentAPI(t *testing.T) {
 
 	updatedContent := created.Content
 	updatedContent.Blocks[0].Text = "Zdravo"
-	updateBody := updateDocumentRequest{Content: updatedContent, Revision: created.Revision}
+	updateBody := updateBlocksRequest{Blocks: []paragraphBlock{updatedContent.Blocks[0]}, Revision: created.Revision}
 	updateJSON, err := json.Marshal(updateBody)
 	if err != nil {
 		t.Fatal(err)
 	}
-	updateRequest, err := http.NewRequest(http.MethodPut, testServer.URL+"/documents/"+created.ID, bytes.NewReader(updateJSON))
+	updateRequest, err := http.NewRequest(http.MethodPatch, testServer.URL+"/documents/"+created.ID+"/blocks", bytes.NewReader(updateJSON))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +313,7 @@ func TestDocumentAPI(t *testing.T) {
 	}
 	updateResponse.Body.Close()
 	if updateResponse.StatusCode != http.StatusOK {
-		t.Fatalf("PUT status = %d, want %d", updateResponse.StatusCode, http.StatusOK)
+		t.Fatalf("block PATCH status = %d, want %d", updateResponse.StatusCode, http.StatusOK)
 	}
 
 	renameBody, err := json.Marshal(renameDocumentRequest{Title: "Novi test dokument", Revision: 2})
@@ -256,7 +369,7 @@ func TestDocumentAPI(t *testing.T) {
 		t.Fatalf("duplicate rename status = %d, want %d", duplicateRenameResponse.StatusCode, http.StatusConflict)
 	}
 
-	staleRequest, err := http.NewRequest(http.MethodPut, testServer.URL+"/documents/"+created.ID, bytes.NewReader(updateJSON))
+	staleRequest, err := http.NewRequest(http.MethodPatch, testServer.URL+"/documents/"+created.ID+"/blocks", bytes.NewReader(updateJSON))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +380,7 @@ func TestDocumentAPI(t *testing.T) {
 	}
 	staleResponse.Body.Close()
 	if staleResponse.StatusCode != http.StatusConflict {
-		t.Fatalf("stale PUT status = %d, want %d", staleResponse.StatusCode, http.StatusConflict)
+		t.Fatalf("stale block PATCH status = %d, want %d", staleResponse.StatusCode, http.StatusConflict)
 	}
 
 	staleDeleteRequest, err := http.NewRequest(http.MethodDelete, testServer.URL+"/documents/"+renamed.Slug+"?revision=2", nil)

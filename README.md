@@ -39,8 +39,21 @@ psql "postgres://dionysus_app:dionysus@127.0.0.1:5432/dionysus?sslmode=disable" 
 	-f migrations/002_add_document_title_slug.sql
 ```
 
-The local database connection defaults are defined in `main.go`. The HTTP
-address can be changed with `HTTP_ADDR`; the default is `:8080`.
+For local development, `APP_ENV` defaults to `development`. If the database
+variables are not set, the application uses the local PostgreSQL defaults:
+`127.0.0.1:5432`, user `dionysus_app`, database `dionysus`, and password
+`dionysus`. Override them with `DB_HOST`, `DB_PORT`, `DB_USER`,
+`DB_PASSWORD`, and `DB_NAME`. `DB_SSLMODE` defaults to `disable` locally.
+
+You can put these values in a local `.env` file copied from `.env.example`.
+The application loads `.env` during development; environment variables already
+set in the shell take precedence. In production, `.env` is not loaded when
+`APP_ENV=production` is already present in the process environment.
+
+Set `APP_ENV=production` outside local development. Production requires all
+five `DB_*` variables and always uses `sslmode=require`, regardless of
+`DB_SSLMODE`. The HTTP address can be changed with `HTTP_ADDR`; the default is
+`:8080`.
 
 Start the application:
 

@@ -12,6 +12,8 @@ const linkDialogReference = document.querySelector("#link-dialog-reference");
 const referencePreview = document.querySelector("#reference-preview");
 const referencePreviewText = document.querySelector("#reference-preview-text");
 const linkDialogError = document.querySelector("#link-dialog-error");
+const documentSizeLimit = document.querySelector("#document-size-limit");
+const documentBlockLimit = document.querySelector("#document-block-limit");
 const editorSidebar = document.querySelector("#editor-sidebar");
 const sidebarToggle = document.querySelector("#sidebar-toggle");
 const sidebarResizeHandle = document.querySelector("#sidebar-resize-handle");
@@ -28,6 +30,7 @@ const state = {
     title: "Untitled document",
     slug: null,
     content: null,
+    syncedContent: null,
     revision: 0,
     saveTimer: null,
     saveInFlight: false,
@@ -35,13 +38,35 @@ const state = {
     undoStack: [],
     redoStack: [],
     lastOperation: "Initial document",
+    contentDirty: false,
+    activeBlockId: null,
+    pointerDownBlockId: null,
+    suppressClickBlockId: null,
     copiedBlockId: null,
     copyResetTimer: null,
     historySuppressed: false,
     pendingLink: null,
+    savedSelection: null,
 };
 
+document.addEventListener("mouseup", () => {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) {
+        const anchorElement = selection.anchorNode instanceof Element
+            ? selection.anchorNode
+            : selection.anchorNode?.parentElement;
+        state.suppressClickBlockId = anchorElement?.closest(".paragraph")?.dataset.blockId ?? null;
+    }
+    state.pointerDownBlockId = null;
+});
+
 const historyLimit = 100;
+const safetySaveDelay = 2000;
+const maxDocumentRequestBytes = 1 << 20;
+const maxDocumentBlockCount = 10000;
+const maxParagraphRunes = 5000;
+const maxParagraphMarks = 50;
+const maxParagraphLinks = 20;
 let sidebarCollapseTimer = null;
 let sidebarShown = localStorage.getItem("dionysus:sidebarShown") !== "false";
 let sidebarResizeState = null;
@@ -57,6 +82,8 @@ window.addEventListener("blur", clearLinkModifier);
 document.addEventListener("selectionchange", handleSelectionChange);
 document.addEventListener("mousedown", handleToolbarMouseDown);
 document.addEventListener("click", handleSidebarOutsideClick);
+document.addEventListener("visibilitychange", handleDocumentVisibilityChange);
+window.addEventListener("pagehide", flushPendingSave);
 applySidebarState();
 undoButton.addEventListener("click", undo);
 redoButton.addEventListener("click", redo);
@@ -104,10 +131,14 @@ async function initialize() {
         state.title = documentState.title;
         state.slug = documentState.slug;
         const recoveredContent = readRecovery(documentState.id);
+        state.syncedContent = cloneContent(documentState.content);
         state.content = recoveredContent ?? documentState.content;
         state.revision = documentState.revision;
+        updateDocumentLimitMeters();
         state.undoStack = [];
         state.redoStack = [];
+        state.contentDirty = false;
+        state.activeBlockId = state.content.blocks[0]?.id ?? null;
         documentTitle.value = documentState.title;
         localStorage.setItem("dionysus:lastDocumentSlug", documentState.slug);
         history.replaceState(null, "", `/documents/${encodeURIComponent(documentState.slug)}${window.location.hash}`);
@@ -208,7 +239,7 @@ function getSidebarDefaultWidth() {
 }
 
 function setSidebarWidth(width) {
-    const boundedWidth = Math.max(220, Math.min(520, width));
+    const boundedWidth = Math.max(getSidebarDefaultWidth(), Math.min(520, width));
     editorSidebar.style.setProperty("--sidebar-width", `${boundedWidth}px`);
 }
 
@@ -329,15 +360,58 @@ function focusHashTarget() {
 function render(focusBlockId = null, cursorOffset = null) {
     editor.replaceChildren();
 
+    if (focusBlockId !== null) {
+        state.activeBlockId = focusBlockId;
+    }
+    if (!state.content.blocks.some((block) => block.id === state.activeBlockId)) {
+        state.activeBlockId = state.content.blocks[0]?.id ?? null;
+    }
+
     for (const block of state.content.blocks) {
         const paragraph = document.createElement("d-paragraph");
         paragraph.className = "paragraph";
+        const isActive = block.id === state.activeBlockId;
+        paragraph.classList.toggle("is-active", isActive);
         paragraph.classList.toggle("paragraph-justify", block.align === "justify");
         paragraph.style.textAlign = block.align || "left";
-        paragraph.contentEditable = "true";
+        paragraph.contentEditable = String(isActive);
+        paragraph.tabIndex = 0;
+        paragraph.setAttribute("aria-readonly", String(!isActive));
         paragraph.dataset.blockId = block.id;
         paragraph.id = `block-${block.id}`;
         renderParagraphContent(paragraph, block);
+        paragraph.addEventListener("mousedown", (event) => {
+            if (event.button === 0 && state.activeBlockId !== block.id) {
+                state.pointerDownBlockId = block.id;
+            }
+        });
+        paragraph.addEventListener("click", (event) => {
+            if (state.suppressClickBlockId === block.id) {
+                state.suppressClickBlockId = null;
+                return;
+            }
+            if (state.activeBlockId !== block.id) {
+                const clientX = event.clientX;
+                const clientY = event.clientY;
+                setTimeout(() => {
+                    if (state.activeBlockId === block.id) {
+                        return;
+                    }
+                    const selection = window.getSelection();
+                    const hasSelection = selection && !selection.isCollapsed
+                        && paragraph.contains(selection.anchorNode)
+                        && paragraph.contains(selection.focusNode);
+                    if (!hasSelection) {
+                        activateBlock(block.id, getCaretOffsetFromPoint(paragraph, clientX, clientY));
+                    }
+                }, 0);
+            }
+        });
+        paragraph.addEventListener("focus", () => {
+            if (state.activeBlockId !== block.id && state.pointerDownBlockId !== block.id) {
+                activateBlock(block.id, paragraph.textContent.length);
+            }
+        });
         paragraph.addEventListener("input", handleInput);
         paragraph.addEventListener("blur", handleParagraphBlur);
         paragraph.addEventListener("beforeinput", handleBeforeInput);
@@ -407,8 +481,18 @@ function render(focusBlockId = null, cursorOffset = null) {
         copyLinkButton.append(copyIcon);
         copyLinkButton.addEventListener("click", () => copyParagraphLink(block, copyLinkButton));
 
-        paragraphTools.append(alignmentTools, splitButton, mergeAboveButton, mergeBelowButton, copyLinkButton);
-        row.append(paragraph, paragraphTools);
+        const paragraphMetrics = document.createElement("div");
+        paragraphMetrics.className = "paragraph-metrics";
+        paragraphMetrics.setAttribute("role", "status");
+        paragraphMetrics.setAttribute("aria-live", "polite");
+        updateParagraphMetrics(paragraphMetrics, block);
+
+        const paragraphActions = document.createElement("div");
+        paragraphActions.className = "paragraph-actions";
+        paragraphActions.append(alignmentTools, splitButton, mergeAboveButton, mergeBelowButton, copyLinkButton);
+        paragraphTools.append(paragraphActions);
+        row.append(paragraph, paragraphTools, paragraphMetrics);
+        row.classList.toggle("is-active", isActive);
         editor.append(row);
     }
 
@@ -420,9 +504,35 @@ function render(focusBlockId = null, cursorOffset = null) {
     }
 }
 
+function activateBlock(blockId, cursorOffset = null) {
+    state.activeBlockId = blockId;
+    for (const paragraph of editor.querySelectorAll(".paragraph")) {
+        const isActive = paragraph.dataset.blockId === blockId;
+        paragraph.classList.toggle("is-active", isActive);
+        paragraph.contentEditable = String(isActive);
+        paragraph.setAttribute("aria-readonly", String(!isActive));
+        paragraph.parentElement?.classList.toggle("is-active", isActive);
+    }
+    if (cursorOffset !== null) {
+        const paragraph = findParagraph(blockId);
+        if (paragraph) {
+            focusAt(paragraph, cursorOffset);
+        }
+    }
+}
+
+function updateParagraphMetrics(metricsElement, block) {
+    const characterCount = Array.from(block.text).length;
+    const wordCount = block.text.trim() === "" ? 0 : block.text.trim().split(/\s+/u).length;
+    const markCount = block.marks?.length ?? 0;
+    const linkCount = block.links?.length ?? 0;
+    metricsElement.textContent = `${characterCount.toLocaleString("sr-Latn")} / ${maxParagraphRunes.toLocaleString("sr-Latn")} znakova · ${wordCount.toLocaleString("sr-Latn")} reči · ${markCount} / ${maxParagraphMarks} formatiranja · ${linkCount} / ${maxParagraphLinks} linkova`;
+}
+
 function createMergeButton(direction, block, paragraph) {
     const button = document.createElement("button");
     button.className = "paragraph-merge-button";
+    button.classList.add(`paragraph-merge-${direction}`);
     button.type = "button";
     button.setAttribute("aria-label", `Merge with ${direction}`);
     button.title = `Merge with ${direction}`;
@@ -885,16 +995,25 @@ function handleInput(event) {
     if (!state.historySuppressed) {
         recordHistory(event.inputType === "insertFromPaste" ? "Text paste" : "Text edit");
     }
+    state.contentDirty = true;
     block.text = paragraph.textContent.replace(/[\r\n]/g, "");
     const metadata = readInlineMetadata(paragraph);
     block.marks = metadata.marks;
     block.links = metadata.links;
+    const paragraphMetrics = paragraph.parentElement?.querySelector(".paragraph-metrics");
+    if (paragraphMetrics) {
+        updateParagraphMetrics(paragraphMetrics, block);
+    }
     const cursorOffset = getSelectionPosition(paragraph)?.start ?? block.text.length;
     if (paragraph.textContent !== block.text) {
         render(block.id, cursorOffset);
     }
     repairLegacyOffsetBlocks(state.content);
-    queueSave();
+    if (event.inputType === "insertFromPaste") {
+        saveImmediately();
+    } else {
+        scheduleSafetySave();
+    }
 }
 
 function handleParagraphBlur(event) {
@@ -1122,6 +1241,11 @@ function handleSelectionChange() {
         return;
     }
     const rect = selection.getRangeAt(0).getBoundingClientRect();
+    state.savedSelection = {
+        blockId: paragraph.dataset.blockId,
+        start: position.start,
+        end: position.end,
+    };
     selectionToolbar.hidden = false;
     const toolbarWidth = selectionToolbar.offsetWidth;
     const toolbarHeight = selectionToolbar.offsetHeight;
@@ -1156,6 +1280,19 @@ function updateToolbarState(paragraph, position) {
 function handleToolbarMouseDown(event) {
     if (selectionToolbar.contains(event.target)) {
         event.preventDefault();
+        const button = event.target.closest("button");
+        if (button?.dataset.format !== "caps") {
+            restoreSavedSelection();
+        }
+    }
+}
+
+function restoreSavedSelection() {
+    const savedSelection = state.savedSelection;
+    if (!savedSelection) return;
+    const paragraph = findParagraph(savedSelection.blockId);
+    if (paragraph) {
+        selectOffsets(paragraph, savedSelection.start, savedSelection.end);
     }
 }
 
@@ -1184,9 +1321,11 @@ function handleToolbarClick(event) {
         return;
     }
     if (button.dataset.caps) {
+        restoreSavedSelection();
         applyCaseTransform(button.dataset.caps);
         return;
     }
+    restoreSavedSelection();
     const selection = window.getSelection();
     const anchorElement = selection?.anchorNode?.nodeType === Node.ELEMENT_NODE
         ? selection.anchorNode
@@ -1502,6 +1641,20 @@ function getTextOffset(paragraph, container, offset) {
     return result;
 }
 
+function getCaretOffsetFromPoint(paragraph, clientX, clientY) {
+    const documentPosition = document.caretPositionFromPoint?.(clientX, clientY);
+    if (documentPosition && paragraph.contains(documentPosition.offsetNode)) {
+        return getTextOffset(paragraph, documentPosition.offsetNode, documentPosition.offset);
+    }
+
+    const range = document.caretRangeFromPoint?.(clientX, clientY);
+    if (range && paragraph.contains(range.startContainer)) {
+        return getTextOffset(paragraph, range.startContainer, range.startOffset);
+    }
+
+    return null;
+}
+
 function focusAt(paragraph, offset) {
     paragraph.focus();
     const range = document.createRange();
@@ -1715,7 +1868,9 @@ async function copyText(value) {
 }
 
 function queueSave() {
+    state.contentDirty = true;
     normalizeContentMetadata(state.content);
+    updateDocumentLimitMeters();
     setSaveState("Unsaved", "unsaved");
     state.saveQueued = true;
     clearTimeout(state.saveTimer);
@@ -1723,6 +1878,77 @@ function queueSave() {
         state.saveQueued = false;
         save();
     }, 700);
+}
+
+function saveImmediately() {
+    state.contentDirty = true;
+    normalizeContentMetadata(state.content);
+    updateDocumentLimitMeters();
+    setSaveState("Unsaved", "unsaved");
+    clearTimeout(state.saveTimer);
+    state.saveTimer = null;
+    state.saveQueued = false;
+    save();
+}
+
+function scheduleSafetySave() {
+    state.contentDirty = true;
+    normalizeContentMetadata(state.content);
+    updateDocumentLimitMeters();
+    setSaveState("Unsaved", "unsaved");
+    state.saveQueued = true;
+    clearTimeout(state.saveTimer);
+    state.saveTimer = setTimeout(() => {
+        state.saveTimer = null;
+        state.saveQueued = false;
+        save();
+    }, safetySaveDelay);
+}
+
+function handleDocumentVisibilityChange() {
+    if (document.visibilityState === "hidden") {
+        flushPendingSave();
+    }
+}
+
+function flushPendingSave() {
+    if (!state.saveQueued || !state.content) {
+        return;
+    }
+    clearTimeout(state.saveTimer);
+    state.saveTimer = null;
+    state.saveQueued = false;
+    save();
+}
+
+function updateDocumentLimitMeters(payload = null) {
+    if (!state.content) return;
+    const serialized = payload ?? JSON.stringify({ content: state.content, revision: state.revision });
+    updateLimitMeter(documentSizeLimit, new Blob([serialized]).size, maxDocumentRequestBytes,
+        (value, maximum, percent) => `Size ${formatByteSize(value)} / ${formatByteSize(maximum)} · ${percent}%`);
+    updateLimitMeter(documentBlockLimit, state.content.blocks.length, maxDocumentBlockCount,
+        (value, maximum, percent) => `Blocks ${value.toLocaleString()} / ${maximum.toLocaleString()} · ${percent}%`);
+}
+
+function updateLimitMeter(label, value, maximum, formatLabel) {
+    const meter = label.closest(".limit-meter");
+    const track = meter.querySelector(".limit-meter-track");
+    const percent = Math.round(value / maximum * 100);
+    label.textContent = formatLabel(value, maximum, percent);
+    meter.dataset.limitLevel = percent >= 90 ? "danger" : percent >= 70 ? "warning" : "safe";
+    meter.title = label.textContent;
+    track.setAttribute("role", "progressbar");
+    track.setAttribute("aria-label", label.textContent);
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", String(maximum));
+    track.setAttribute("aria-valuenow", String(value));
+    track.firstElementChild.style.width = `${Math.min(100, Math.max(0, value / maximum * 100))}%`;
+}
+
+function formatByteSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 async function save() {
@@ -1735,12 +1961,15 @@ async function save() {
     setSaveState("Saving", "saving");
     const contentToSave = cloneContent(state.content);
     const revisionAtStart = state.revision;
+    const blockSave = getBlockSavePayload(contentToSave, revisionAtStart);
+    const payload = JSON.stringify(blockSave);
+    updateDocumentLimitMeters(JSON.stringify({ content: contentToSave, revision: revisionAtStart }));
 
     try {
-        const response = await fetch(`/documents/${state.documentId}`, {
-            method: "PUT",
+        const response = await fetch(`/documents/${state.documentId}/blocks`, {
+            method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content: contentToSave, revision: revisionAtStart }),
+            body: payload,
         });
 
         if (response.status === 409) {
@@ -1752,12 +1981,14 @@ async function save() {
         }
 
         const saved = await response.json();
+        state.syncedContent = cloneContent(saved.content);
         if (sameContent(state.content, contentToSave)) {
             state.content = saved.content;
         }
         state.revision = saved.revision;
         localStorage.removeItem(recoveryKey());
         if (sameContent(state.content, contentToSave)) {
+            state.contentDirty = false;
             setSaveState("Saved", "saved");
         }
     } catch (error) {
@@ -1773,10 +2004,24 @@ async function save() {
     }
 }
 
+function getBlockSavePayload(content, revision) {
+    const previous = state.syncedContent;
+    if (!previous || previous.blocks.length !== content.blocks.length
+        || previous.blocks.some((block, index) => block.id !== content.blocks[index]?.id)) {
+        return { revision, blocks: content.blocks, replaceAll: true };
+    }
+
+    const changedBlocks = content.blocks.filter((block, index) =>
+        JSON.stringify(block) !== JSON.stringify(previous.blocks[index])
+    );
+    return { revision, blocks: changedBlocks, replaceAll: false };
+}
+
 async function recoverFromConflict() {
     localStorage.setItem(recoveryKey(), JSON.stringify(state.content));
     const latest = await loadDocument(state.slug);
     state.revision = latest.revision;
+    state.syncedContent = cloneContent(latest.content);
     setSaveState("Conflict recovered", "error");
     state.saveQueued = true;
 }
