@@ -17,6 +17,7 @@ const documentBlockLimit = document.querySelector("#document-block-limit");
 const editorSidebar = document.querySelector("#editor-sidebar");
 const sidebarToggle = document.querySelector("#sidebar-toggle");
 const sidebarResizeHandle = document.querySelector("#sidebar-resize-handle");
+const sidebarFilesFilter = document.querySelector("#sidebar-files-filter");
 const sidebarFilesList = document.querySelector("#sidebar-files-list");
 const sidebarHistoryList = document.querySelector("#sidebar-history-list");
 const { mergeMetadataRanges, normalizeBlockWhitespace, removeMetadataRange, splitRanges } = window.EditorTransforms;
@@ -68,6 +69,7 @@ const maxParagraphRunes = 5000;
 const maxParagraphMarks = 50;
 const maxParagraphLinks = 20;
 let sidebarCollapseTimer = null;
+let sidebarDocuments = [];
 let sidebarShown = localStorage.getItem("dionysus:sidebarShown") !== "false";
 let sidebarResizeState = null;
 let referencePreviewTimer = null;
@@ -97,6 +99,7 @@ document.addEventListener("keydown", handleLinkDialogKeydown);
 document.querySelector("#link-dialog-close").addEventListener("click", closeLinkDialog);
 document.querySelector("#link-dialog-cancel").addEventListener("click", closeLinkDialog);
 sidebarToggle.addEventListener("click", toggleSidebar);
+sidebarFilesFilter.addEventListener("input", () => renderSidebarFiles(sidebarFilesFilter.value));
 sidebarResizeHandle.addEventListener("pointerdown", handleSidebarResizeStart);
 sidebarResizeHandle.addEventListener("keydown", handleSidebarResizeKeydown);
 editorSidebar.addEventListener("focusout", handleSidebarFocusOut);
@@ -190,36 +193,64 @@ async function loadFiles() {
     try {
         const response = await fetch("/documents");
         if (!response.ok) throw new Error(`Load documents failed: ${response.status}`);
-        const documents = await response.json();
-        sidebarFilesList.replaceChildren();
-        for (const documentSummary of documents) {
-            const link = document.createElement("a");
-            link.className = "sidebar-file";
-            link.href = `/documents/${encodeURIComponent(documentSummary.slug)}`;
-            link.setAttribute("role", "listitem");
-            link.classList.toggle("is-current", documentSummary.slug === state.slug);
-            const icon = document.createElement("span");
-            icon.className = "material-symbols-outlined";
-            icon.setAttribute("aria-hidden", "true");
-            icon.textContent = "description";
-            const title = document.createElement("span");
-            title.className = "sidebar-file-title";
-            title.textContent = documentSummary.title;
-            link.append(icon, title);
-            sidebarFilesList.append(link);
-        }
-        if (documents.length === 0) {
-            renderSidebarEmpty(sidebarFilesList, "No documents yet");
-        }
+        sidebarDocuments = await response.json();
+        renderSidebarFiles(sidebarFilesFilter.value);
     } catch (error) {
         console.error(error);
         renderSidebarEmpty(sidebarFilesList, "Unable to load documents");
     }
 }
 
+function renderSidebarFiles(query = "") {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    const documents = sidebarDocuments.filter((documentSummary) => matchesFileTitle(documentSummary.title, normalizedQuery));
+    sidebarFilesList.replaceChildren();
+    for (const documentSummary of documents) {
+        const link = document.createElement("a");
+        link.className = "sidebar-file";
+        link.href = `/documents/${encodeURIComponent(documentSummary.slug)}`;
+        link.setAttribute("role", "listitem");
+        link.classList.toggle("is-current", documentSummary.slug === state.slug);
+        const icon = document.createElement("span");
+        icon.className = "material-symbols-outlined";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = "description";
+        const title = document.createElement("span");
+        title.className = "sidebar-file-title";
+        title.textContent = documentSummary.title;
+        link.append(icon, title);
+        sidebarFilesList.append(link);
+    }
+    if (documents.length === 0) {
+        renderSidebarEmpty(sidebarFilesList, normalizedQuery ? "No matching documents" : "No documents yet");
+    }
+}
+
+function matchesFileTitle(title, query) {
+    if (!query) return true;
+    const normalizedTitle = title.toLocaleLowerCase();
+    if (normalizedTitle.includes(query)) return true;
+    let queryIndex = 0;
+    for (const character of normalizedTitle) {
+        if (character === query[queryIndex]) queryIndex += 1;
+        if (queryIndex === query.length) return true;
+    }
+    return false;
+}
+
 function toggleSidebar() {
     window.clearTimeout(sidebarCollapseTimer);
     sidebarCollapseTimer = null;
+    if (editorSidebar.classList.contains("is-overlay")) {
+        closeTemporarySidebar();
+        return;
+    }
+    if (!sidebarShown) {
+        sidebarShown = true;
+        localStorage.setItem("dionysus:sidebarShown", "true");
+        applySidebarState();
+        return;
+    }
     sidebarShown = !sidebarShown;
     localStorage.setItem("dionysus:sidebarShown", String(sidebarShown));
     applySidebarState();

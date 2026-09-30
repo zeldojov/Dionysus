@@ -1,11 +1,11 @@
 :root {
     color-scheme: dark;
-    --ink: #d4d4d4;
+    --ink: #dfdfdf;
     --muted: #858585;
     --line: #3e3e3e;
     --paper: #202020;
     --canvas: #101010;
-    --active-block: #1c1c1c;
+    --active-block: #1d1d1d;
     --accent: #007acc;
     --accent-soft: #264f78;
 }
@@ -27,11 +27,6 @@ html.sidebar-hidden .editor-sidebar:not(.is-overlay) .sidebar-panel {
     display: none;
 }
 
-html.sidebar-hidden .editor-sidebar+.workspace {
-    width: min(calc(100% - 116px), 940px);
-    margin-left: 84px;
-}
-
 body {
     min-height: 100vh;
     margin: 0;
@@ -50,7 +45,7 @@ body {
     width: var(--sidebar-width);
     flex-direction: column;
     border-right: 1px solid var(--paper);
-    background: var(--canvas);
+    background: var(--paper);
     transition: width .2s ease;
 }
 
@@ -66,7 +61,6 @@ body {
 .editor-sidebar.is-overlay {
     z-index: 30;
     width: var(--sidebar-width);
-    box-shadow: 18px 0 42px rgba(0, 0, 0, .38);
 }
 
 .editor-sidebar.is-resizing {
@@ -188,6 +182,24 @@ body {
     margin-left: 48px;
     overflow: auto;
     padding: 8px 10px 24px;
+    background: #141414;
+}
+
+.sidebar-files-filter {
+    width: 100%;
+    margin-bottom: 12px;
+    padding: 8px 9px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    outline: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font: 12px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.sidebar-files-filter:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .sidebar-panel-heading {
@@ -287,14 +299,8 @@ body {
 
 .workspace {
     width: min(100% - 32px, 940px);
-    margin: 0 auto 0 312px;
+    margin: 0 auto;
     padding: 56px 0 96px;
-}
-
-.editor-sidebar.is-hidden+.workspace,
-.editor-sidebar.is-overlay+.workspace {
-    width: min(calc(100% - 116px), 940px);
-    margin-left: 84px;
 }
 
 .topbar {
@@ -359,6 +365,10 @@ body {
     padding: 0;
     border-top: 1px solid var(--line);
     background: var(--canvas);
+}
+
+.editor-sidebar.is-overlay+.workspace .status-bar {
+    z-index: 40;
 }
 
 .save-state {
@@ -480,8 +490,7 @@ body {
     padding: 24px clamp(20px, 6vw, 74px) 72px;
     border: 1px solid var(--paper);
     border-radius: 3px;
-    background: var(--paper);
-    box-shadow: 0 18px 55px rgba(0, 0, 0, .32);
+    background: var(--canvas);
 }
 
 .document-meta {
