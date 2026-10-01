@@ -10,7 +10,7 @@
     ],
     "properties": {
         "schemaVersion": {
-            "const": 2
+            "const": 3
         },
         "blocks": {
             "type": "array",
@@ -63,6 +63,12 @@
                     "items": {
                         "$ref": "#/$defs/paragraphLink"
                     }
+                },
+                "references": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/paragraphReference"
+                    }
                 }
             }
         },
@@ -82,7 +88,7 @@
                 },
                 "end": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 0
                 },
                 "style": {
                     "type": "string",
@@ -92,6 +98,7 @@
                         "underline",
                         "strike",
                         "highlight",
+                        "color",
                         "subscript",
                         "superscript"
                     ]
@@ -100,6 +107,31 @@
         },
         "paragraphLink": {
             "title": "Paragraph link range",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "start",
+                "end",
+                "url"
+            ],
+            "properties": {
+                "start": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "end": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "pattern": "^https?://"
+                }
+            }
+        },
+        "paragraphReference": {
+            "title": "Paragraph reference range",
             "type": "object",
             "additionalProperties": false,
             "required": [
@@ -115,7 +147,7 @@
                 },
                 "end": {
                     "type": "integer",
-                    "minimum": 1
+                    "minimum": 0
                 },
                 "documentId": {
                     "type": "string",
@@ -124,10 +156,6 @@
                 "blockId": {
                     "type": "string",
                     "minLength": 1
-                },
-                "reference": {
-                    "type": "boolean",
-                    "default": false
                 }
             }
         }

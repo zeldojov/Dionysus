@@ -2,27 +2,34 @@ const editor = document.querySelector("#editor");
 const saveState = document.querySelector("#save-state");
 const revisionLabel = document.querySelector("#document-revision");
 const documentTitle = document.querySelector("#document-title");
+const fileNewButton = document.querySelector("#file-new");
+const fileOpenButton = document.querySelector("#file-open");
+const fileSaveButton = document.querySelector("#file-save");
+const fileSaveAsButton = document.querySelector("#file-save-as");
 const undoButton = document.querySelector("#undo");
 const redoButton = document.querySelector("#redo");
-const selectionToolbar = document.querySelector("#selection-toolbar");
 const linkDialog = document.querySelector("#link-dialog");
 const linkDialogForm = document.querySelector("#link-dialog-form");
 const linkDialogInput = document.querySelector("#link-dialog-input");
-const linkDialogReference = document.querySelector("#link-dialog-reference");
-const referencePreview = document.querySelector("#reference-preview");
-const referencePreviewText = document.querySelector("#reference-preview-text");
+const referenceDialog = document.querySelector("#reference-dialog");
+const referenceDialogForm = document.querySelector("#reference-dialog-form");
+const referenceDialogInput = document.querySelector("#reference-dialog-input");
 const linkDialogError = document.querySelector("#link-dialog-error");
+const referenceDialogError = document.querySelector("#reference-dialog-error");
 const documentSizeLimit = document.querySelector("#document-size-limit");
 const documentBlockLimit = document.querySelector("#document-block-limit");
-const editorSidebar = document.querySelector("#editor-sidebar");
-const sidebarToggle = document.querySelector("#sidebar-toggle");
-const sidebarResizeHandle = document.querySelector("#sidebar-resize-handle");
-const sidebarFilesFilter = document.querySelector("#sidebar-files-filter");
-const sidebarFilesList = document.querySelector("#sidebar-files-list");
-const sidebarHistoryList = document.querySelector("#sidebar-history-list");
+const paragraphMetricsStatus = document.querySelector("#paragraph-metrics-status");
+const revisionModal = document.querySelector("#revision-modal");
+const revisionList = document.querySelector("#revision-list");
+const revisionModalClose = document.querySelector("#revision-modal-close");
+const incomingReferencesButton = document.querySelector("#incoming-references");
+const incomingReferencesModal = document.querySelector("#incoming-references-modal");
+const incomingReferencesList = document.querySelector("#incoming-references-list");
 const { mergeMetadataRanges, normalizeBlockWhitespace, removeMetadataRange, splitRanges } = window.EditorTransforms;
+const { createDocument: createDocumentRequest, loadDocument: loadDocumentRequest,
+    loadIncomingReferences, removeIncomingReference, renameDocument: renameDocumentRequest, updateBlocks } = window.EditorAPI;
 
-for (const tagName of ["d-paragraph", "d-bold", "d-italic", "d-underline", "d-strike", "d-highlight", "d-subscript", "d-superscript", "d-link", "d-reference"]) {
+for (const tagName of ["d-bold", "d-italic", "d-underline", "d-strike", "d-highlight", "d-color", "d-subscript", "d-superscript"]) {
     customElements.define(tagName, class extends HTMLElement { });
 }
 
@@ -36,21 +43,30 @@ const state = {
     saveTimer: null,
     saveInFlight: false,
     saveQueued: false,
+    referencedBlockIds: new Set(),
     undoStack: [],
     redoStack: [],
     lastOperation: "Initial document",
+    lastOperationAt: Date.now(),
     contentDirty: false,
     activeBlockId: null,
+    editingBlockId: null,
     pointerDownBlockId: null,
     suppressClickBlockId: null,
     copiedBlockId: null,
     copyResetTimer: null,
     historySuppressed: false,
     pendingLink: null,
+    linkDialogMode: "link",
     savedSelection: null,
+    hasTextSelection: false,
+    selectionPointerDown: false,
+    doubleClickSelectionPending: false,
+    rendering: false,
 };
 
 document.addEventListener("mouseup", () => {
+    const selectionWasInProgress = state.selectionPointerDown;
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed) {
         const anchorElement = selection.anchorNode instanceof Element
@@ -59,6 +75,10 @@ document.addEventListener("mouseup", () => {
         state.suppressClickBlockId = anchorElement?.closest(".paragraph")?.dataset.blockId ?? null;
     }
     state.pointerDownBlockId = null;
+    state.selectionPointerDown = false;
+    if (selectionWasInProgress) {
+        window.setTimeout(handleSelectionChange, 0);
+    }
 });
 
 const historyLimit = 100;
@@ -68,13 +88,9 @@ const maxDocumentBlockCount = 10000;
 const maxParagraphRunes = 5000;
 const maxParagraphMarks = 50;
 const maxParagraphLinks = 20;
-let sidebarCollapseTimer = null;
-let sidebarDocuments = [];
-let sidebarShown = localStorage.getItem("dionysus:sidebarShown") !== "false";
-let sidebarResizeState = null;
-let referencePreviewTimer = null;
-let activeReference = null;
-const referencePreviewCache = new Map();
+const maxParagraphReferences = 20;
+const selectionHighlightName = "dionysus-selection";
+let visibleHistory = [];
 
 document.addEventListener("DOMContentLoaded", initialize);
 document.addEventListener("keydown", handleHistoryShortcut);
@@ -83,28 +99,159 @@ document.addEventListener("keyup", handleLinkModifierKey);
 window.addEventListener("blur", clearLinkModifier);
 document.addEventListener("selectionchange", handleSelectionChange);
 document.addEventListener("mousedown", handleToolbarMouseDown);
-document.addEventListener("click", handleSidebarOutsideClick);
 document.addEventListener("visibilitychange", handleDocumentVisibilityChange);
 window.addEventListener("pagehide", flushPendingSave);
-applySidebarState();
 undoButton.addEventListener("click", undo);
 redoButton.addEventListener("click", redo);
-selectionToolbar.addEventListener("click", handleToolbarClick);
-selectionToolbar.addEventListener("focusout", handleToolbarFocusOut);
+document.querySelector("#history-revisions").addEventListener("click", openHistoryPicker);
+revisionModalClose.addEventListener("click", closeRevisionModal);
+revisionList.addEventListener("click", handleRevisionModalClick);
+revisionModal.addEventListener("click", handleRevisionModalBackdropClick);
+bindRibbonToolbar();
 linkDialogForm.addEventListener("submit", handleLinkDialogSubmit);
-linkDialog.addEventListener("click", (event) => {
-    if (event.target === linkDialog) closeLinkDialog();
-});
+referenceDialogForm.addEventListener("submit", handleLinkDialogSubmit);
+linkDialog.addEventListener("click", handleLinkDialogBackdropClick);
+referenceDialog.addEventListener("click", handleLinkDialogBackdropClick);
 document.addEventListener("keydown", handleLinkDialogKeydown);
 document.querySelector("#link-dialog-close").addEventListener("click", closeLinkDialog);
 document.querySelector("#link-dialog-cancel").addEventListener("click", closeLinkDialog);
-sidebarToggle.addEventListener("click", toggleSidebar);
-sidebarFilesFilter.addEventListener("input", () => renderSidebarFiles(sidebarFilesFilter.value));
-sidebarResizeHandle.addEventListener("pointerdown", handleSidebarResizeStart);
-sidebarResizeHandle.addEventListener("keydown", handleSidebarResizeKeydown);
-editorSidebar.addEventListener("focusout", handleSidebarFocusOut);
-for (const tab of editorSidebar.querySelectorAll("[data-sidebar-tab]")) {
-    tab.addEventListener("click", () => selectSidebarTab(tab.dataset.sidebarTab));
+document.querySelector("#reference-dialog-close").addEventListener("click", closeLinkDialog);
+document.querySelector("#reference-dialog-cancel").addEventListener("click", closeLinkDialog);
+document.querySelector("#incoming-references-close").addEventListener("click", closeIncomingReferences);
+incomingReferencesModal.addEventListener("click", handleIncomingReferencesModalClick);
+document.addEventListener("keydown", handleRevisionModalKeydown);
+
+function bindRibbonToolbar() {
+    fileNewButton.addEventListener("click", createDocumentFromToolbar);
+    fileOpenButton.addEventListener("click", openDocumentsFromToolbar);
+    fileSaveButton.addEventListener("click", saveImmediately);
+    fileSaveAsButton.addEventListener("click", saveDocumentAs);
+    for (const button of document.querySelectorAll(".ribbon-format-button")) {
+        button.addEventListener("click", handleFormatButtonClick);
+    }
+    for (const button of document.querySelectorAll(".ribbon-link-button")) {
+        button.addEventListener("click", handleLinkButtonClick);
+    }
+    for (const button of document.querySelectorAll(".ribbon-align-button")) {
+        button.addEventListener("click", handleAlignmentButtonClick);
+    }
+    document.querySelector("#split-paragraph").addEventListener("click", handleSplitButtonClick);
+    for (const button of document.querySelectorAll("[data-merge-direction]")) {
+        button.addEventListener("click", handleMergeButtonClick);
+    }
+    document.querySelector("#copy-block-reference").addEventListener("click", handleCopyReferenceButtonClick);
+    incomingReferencesButton.addEventListener("click", handleIncomingReferencesButtonClick);
+}
+
+function openDocumentsFromToolbar() {
+    window.location.assign("/");
+}
+
+function handleFormatButtonClick(event) {
+    const button = event.currentTarget;
+    restoreSavedSelection();
+    if (button.dataset.caps) {
+        applyCaseTransform(button.dataset.caps);
+    } else if (button.dataset.format === "clear") {
+        clearSelectedFormatting();
+    } else {
+        applyTextFormat(button.dataset.format);
+    }
+}
+
+function handleLinkButtonClick(event) {
+    const button = event.currentTarget;
+    let context = getSelectionContext({ requireEditing: true });
+    const savedSelection = state.savedSelection;
+    if (savedSelection) {
+        const savedParagraph = findParagraph(savedSelection.blockId);
+        const savedBlock = findBlock(savedSelection.blockId);
+        const savedContext = savedParagraph && savedBlock ? {
+            paragraph: savedParagraph,
+            block: savedBlock,
+            position: { start: savedSelection.start, end: savedSelection.end },
+        } : null;
+        if (savedContext && selectionHasLink(savedContext, button.dataset.linkKind)) {
+            context = savedContext;
+        }
+    }
+    if (context && !selectionHasLink(context, button.dataset.linkKind) && state.savedSelection) {
+        restoreSavedSelection();
+        context = getSelectionContext({ requireEditing: true });
+    }
+    if (!context) {
+        restoreSavedSelection();
+        context = getSelectionContext({ requireEditing: true });
+    }
+    if (!context) return;
+    if (selectionHasLink(context, button.dataset.linkKind)) {
+        removeSelectedLink(context, button.dataset.linkKind);
+        return;
+    }
+    createLink(context.paragraph, context.position, button.dataset.linkKind);
+}
+
+function handleAlignmentButtonClick(event) {
+    const blockId = state.editingBlockId;
+    const paragraph = blockId ? findParagraph(blockId) : null;
+    const alignment = event.currentTarget.dataset.alignment;
+    if (!paragraph || (paragraph.block.align || "left") === alignment) return;
+
+    recordHistory(`Paragraph alignment: ${alignment}`);
+    paragraph.setAlignment(alignment);
+}
+
+function handleParagraphBlockChange(event) {
+    const changedBlock = event.detail?.block;
+    const blockIndex = changedBlock && state.content?.blocks.findIndex((block) => block.id === changedBlock.id);
+    if (blockIndex !== undefined && blockIndex >= 0) {
+        state.content.blocks[blockIndex] = changedBlock;
+    }
+    updateRibbonAlignmentAvailability();
+    queueSave();
+}
+
+function handleSplitButtonClick() {
+    if (state.hasTextSelection) restoreSavedSelection();
+    const block = state.editingBlockId ? findBlock(state.editingBlockId) : null;
+    const paragraph = block ? findParagraph(block.id) : null;
+    const position = paragraph ? getSelectionPosition(paragraph) : null;
+    if (block && position) splitParagraph(block, position.start, position.end);
+}
+
+function handleMergeButtonClick(event) {
+    const blockId = state.editingBlockId;
+    if (blockId) mergeParagraph(blockId, event.currentTarget.dataset.mergeDirection);
+}
+
+function handleCopyReferenceButtonClick(event) {
+    const block = state.activeBlockId ? findBlock(state.activeBlockId) : null;
+    if (block) copyParagraphLink(block, event.currentTarget);
+}
+
+function handleIncomingReferencesButtonClick() {
+    openIncomingReferences();
+}
+
+function handleRevisionModalBackdropClick(event) {
+    if (event.target === revisionModal) closeRevisionModal();
+}
+
+function handleLinkDialogBackdropClick(event) {
+    if (event.target === linkDialog || event.target === referenceDialog) closeLinkDialog();
+}
+
+function handleIncomingReferencesModalClick(event) {
+    if (event.target === incomingReferencesModal) {
+        closeIncomingReferences();
+        return;
+    }
+    const removeButton = event.target.closest("[data-incoming-reference-id]");
+    if (removeButton) removeIncomingReferenceFromModal(removeButton);
+}
+
+function handleRevisionModalKeydown(event) {
+    if (event.key === "Escape" && !revisionModal.hidden) closeRevisionModal();
 }
 
 function handleLinkModifierKey(event) {
@@ -119,7 +266,6 @@ function clearLinkModifier() {
 
 async function initialize() {
     setSaveState("Loading", "loading");
-    resetSidebarWidth();
 
     try {
         const pathIdentifier = getPathIdentifier();
@@ -130,34 +276,41 @@ async function initialize() {
                 ? await loadDocument(lastSlug)
                 : await createDocument();
 
-        state.documentId = documentState.id;
-        state.title = documentState.title;
-        state.slug = documentState.slug;
-        const recoveredContent = readRecovery(documentState.id);
-        state.syncedContent = cloneContent(documentState.content);
-        state.content = recoveredContent ?? documentState.content;
-        state.revision = documentState.revision;
-        updateDocumentLimitMeters();
-        state.undoStack = [];
-        state.redoStack = [];
-        state.contentDirty = false;
-        state.activeBlockId = state.content.blocks[0]?.id ?? null;
-        documentTitle.value = documentState.title;
-        localStorage.setItem("dionysus:lastDocumentSlug", documentState.slug);
-        history.replaceState(null, "", `/documents/${encodeURIComponent(documentState.slug)}${window.location.hash}`);
-        const repairedLegacyOffsets = repairLegacyOffsetBlocks(state.content);
-        render();
-        focusHashTarget();
-        updateHistoryButtons();
-        loadFiles();
-        if (recoveredContent || repairedLegacyOffsets) {
-            queueSave();
-        } else {
-            setSaveState("Saved", "saved");
-        }
+        applyDocumentState(documentState);
     } catch (error) {
         console.error(error);
         setSaveState("Unable to load", "error");
+    }
+}
+
+function applyDocumentState(documentState) {
+    state.documentId = documentState.id;
+    state.title = documentState.title;
+    state.slug = documentState.slug;
+    const recoveredContent = readRecovery(documentState.id);
+    state.syncedContent = cloneContent(documentState.content);
+    state.content = recoveredContent ?? documentState.content;
+    state.revision = documentState.revision;
+    state.referencedBlockIds = new Set(documentState.referencedBlockIds ?? []);
+    updateDocumentLimitMeters();
+    state.undoStack = [];
+    state.redoStack = [];
+    state.lastOperation = "Initial document";
+    state.lastOperationAt = Date.now();
+    state.contentDirty = false;
+    state.activeBlockId = null;
+    state.editingBlockId = null;
+    documentTitle.value = documentState.title;
+    localStorage.setItem("dionysus:lastDocumentSlug", documentState.slug);
+    history.replaceState(null, "", `/documents/${encodeURIComponent(documentState.slug)}${window.location.hash}`);
+    const repairedLegacyOffsets = repairLegacyOffsetBlocks(state.content);
+    render();
+    focusHashTarget();
+    updateHistoryButtons();
+    if (recoveredContent || repairedLegacyOffsets) {
+        queueSave();
+    } else {
+        setSaveState("Saved", "saved");
     }
 }
 
@@ -170,204 +323,157 @@ documentTitle.addEventListener("keydown", (event) => {
 documentTitle.addEventListener("blur", renameDocument);
 
 async function createDocument() {
-    const response = await fetch("/documents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Untitled document" }),
-    });
-    if (!response.ok) {
-        throw new Error(`Create document failed: ${response.status}`);
-    }
-    return response.json();
+    return createDocumentRequest();
 }
 
 async function loadDocument(identifier) {
-    const response = await fetch(`/documents/${encodeURIComponent(identifier)}`);
-    if (!response.ok) {
-        throw new Error(`Load document failed: ${response.status}`);
-    }
-    return response.json();
+    return loadDocumentRequest(identifier);
 }
 
-async function loadFiles() {
+function openHistoryPicker() {
+    renderRevisionModal();
+    revisionModal.hidden = false;
+    document.body.classList.add("revision-modal-open");
+    revisionModalClose.focus();
+}
+
+function closeRevisionModal() {
+    revisionModal.hidden = true;
+    document.body.classList.remove("revision-modal-open");
+}
+
+function renderRevisionModal() {
+    const entries = getHistoryEntries().sort((left, right) => right.historyOrder - left.historyOrder);
+    visibleHistory = entries;
+    revisionList.replaceChildren();
+
+    if (!entries.length) {
+        const empty = document.createElement("p");
+        empty.className = "revision-empty";
+        empty.textContent = "No revisions yet";
+        revisionList.append(empty);
+        return;
+    }
+
+    for (const [index, entry] of entries.entries()) {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = `revision-item${entry.kind === "current" ? " is-current" : ""}`;
+        option.dataset.historyIndex = String(index);
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", String(entry.kind === "current"));
+
+        const header = document.createElement("span");
+        header.className = "revision-item-header";
+        const operation = document.createElement("strong");
+        operation.textContent = entry.operation ?? "Edit";
+        const status = document.createElement("span");
+        status.textContent = formatHistoryStatus(entry);
+        header.append(operation, status);
+
+        const preview = document.createElement("div");
+        preview.className = "revision-item-preview";
+        const blocks = entry.content?.blocks ?? [];
+        const previousEntry = entries.find((candidate) => candidate.historyOrder === entry.historyOrder - 1);
+        let changedBlockCount = 0;
+        if (blocks.length) {
+            for (const block of blocks) {
+                const previousBlock = previousEntry
+                    && (previousEntry.content?.blocks ?? []).find((candidate) => candidate.id === block.id);
+                const changedRanges = getRevisionChangedRanges(block, previousBlock, Boolean(previousEntry));
+                if (!changedRanges.length) continue;
+
+                const paragraph = document.createElement("div");
+                paragraph.className = "revision-preview-paragraph";
+                paragraph.setAttribute("aria-hidden", "true");
+                renderParagraphContent(paragraph, block, changedRanges);
+                preview.append(paragraph);
+                changedBlockCount += 1;
+            }
+        }
+        if (!changedBlockCount) {
+            preview.textContent = blocks.length ? "No paragraph changes" : "Empty document";
+        }
+        option.append(header, preview);
+        revisionList.append(option);
+    }
+}
+
+function getRevisionChangedRanges(block, previousBlock, hasPreviousSnapshot) {
+    if (!hasPreviousSnapshot) return [];
+    if (!previousBlock) {
+        return block.text.length ? [{ start: 0, end: block.text.length }] : [];
+    }
+    if (block.text === previousBlock.text && JSON.stringify(block.marks ?? []) === JSON.stringify(previousBlock.marks ?? [])
+        && JSON.stringify(block.links ?? []) === JSON.stringify(previousBlock.links ?? [])
+        && JSON.stringify(block.references ?? []) === JSON.stringify(previousBlock.references ?? [])) {
+        return [];
+    }
+
+    let start = 0;
+    while (start < block.text.length && start < previousBlock.text.length
+        && block.text[start] === previousBlock.text[start]) {
+        start += 1;
+    }
+    let end = block.text.length;
+    let previousEnd = previousBlock.text.length;
+    while (end > start && previousEnd > start && block.text[end - 1] === previousBlock.text[previousEnd - 1]) {
+        end -= 1;
+        previousEnd -= 1;
+    }
+    if (end > start) return [{ start, end }];
+
+    const metadataRanges = [...(block.marks ?? []), ...(block.links ?? []), ...(block.references ?? []),
+    ...(previousBlock.marks ?? []), ...(previousBlock.links ?? []), ...(previousBlock.references ?? [])]
+        .map((range) => ({
+            start: Math.max(0, Math.min(range.start, block.text.length)),
+            end: Math.max(0, Math.min(range.end, block.text.length)),
+        }))
+        .filter((range) => range.end > range.start);
+    return metadataRanges;
+}
+
+function handleRevisionModalClick(event) {
+    const option = event.target.closest("[data-history-index]");
+    if (!option) return;
+    restoreHistorySnapshot(visibleHistory[Number(option.dataset.historyIndex)]);
+    closeRevisionModal();
+}
+
+async function createDocumentFromToolbar() {
+    const title = window.prompt("Document title", "Untitled document");
+    if (title === null || !title.trim()) return;
+
+    fileNewButton.disabled = true;
     try {
-        const response = await fetch("/documents");
-        if (!response.ok) throw new Error(`Load documents failed: ${response.status}`);
-        sidebarDocuments = await response.json();
-        renderSidebarFiles(sidebarFilesFilter.value);
+        const documentState = await createDocumentRequest(title.trim());
+        localStorage.setItem("dionysus:lastDocumentSlug", documentState.slug);
+        window.location.assign(`/documents/${encodeURIComponent(documentState.slug)}`);
     } catch (error) {
         console.error(error);
-        renderSidebarEmpty(sidebarFilesList, "Unable to load documents");
+        fileNewButton.disabled = false;
+        setSaveState("Unable to create", "error");
     }
 }
 
-function renderSidebarFiles(query = "") {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    const documents = sidebarDocuments.filter((documentSummary) => matchesFileTitle(documentSummary.title, normalizedQuery));
-    sidebarFilesList.replaceChildren();
-    for (const documentSummary of documents) {
-        const link = document.createElement("a");
-        link.className = "sidebar-file";
-        link.href = `/documents/${encodeURIComponent(documentSummary.slug)}`;
-        link.setAttribute("role", "listitem");
-        link.classList.toggle("is-current", documentSummary.slug === state.slug);
-        const icon = document.createElement("span");
-        icon.className = "material-symbols-outlined";
-        icon.setAttribute("aria-hidden", "true");
-        icon.textContent = "description";
-        const title = document.createElement("span");
-        title.className = "sidebar-file-title";
-        title.textContent = documentSummary.title;
-        link.append(icon, title);
-        sidebarFilesList.append(link);
+async function saveDocumentAs() {
+    const title = window.prompt("Save document as", `${state.title} copy`);
+    if (title === null || !title.trim() || !state.content) return;
+
+    try {
+        const documentState = await createDocumentRequest(title.trim());
+        await updateBlocks(documentState.id, {
+            revision: documentState.revision,
+            blocks: cloneContent(state.content).blocks,
+            replaceAll: true,
+        });
+
+        localStorage.setItem("dionysus:lastDocumentSlug", documentState.slug);
+        window.location.assign(`/documents/${encodeURIComponent(documentState.slug)}`);
+    } catch (error) {
+        console.error(error);
+        setSaveState("Save as failed", "error");
     }
-    if (documents.length === 0) {
-        renderSidebarEmpty(sidebarFilesList, normalizedQuery ? "No matching documents" : "No documents yet");
-    }
-}
-
-function matchesFileTitle(title, query) {
-    if (!query) return true;
-    const normalizedTitle = title.toLocaleLowerCase();
-    if (normalizedTitle.includes(query)) return true;
-    let queryIndex = 0;
-    for (const character of normalizedTitle) {
-        if (character === query[queryIndex]) queryIndex += 1;
-        if (queryIndex === query.length) return true;
-    }
-    return false;
-}
-
-function toggleSidebar() {
-    window.clearTimeout(sidebarCollapseTimer);
-    sidebarCollapseTimer = null;
-    if (editorSidebar.classList.contains("is-overlay")) {
-        closeTemporarySidebar();
-        return;
-    }
-    if (!sidebarShown) {
-        sidebarShown = true;
-        localStorage.setItem("dionysus:sidebarShown", "true");
-        applySidebarState();
-        return;
-    }
-    sidebarShown = !sidebarShown;
-    localStorage.setItem("dionysus:sidebarShown", String(sidebarShown));
-    applySidebarState();
-}
-
-function resetSidebarWidth() {
-    editorSidebar.style.removeProperty("--sidebar-width");
-    editorSidebar.classList.remove("is-resizing");
-}
-
-function getSidebarWidth() {
-    return editorSidebar.getBoundingClientRect().width;
-}
-
-function getSidebarDefaultWidth() {
-    return Number.parseFloat(getComputedStyle(editorSidebar).getPropertyValue("--sidebar-default-width")) || 280;
-}
-
-function setSidebarWidth(width) {
-    const boundedWidth = Math.max(getSidebarDefaultWidth(), Math.min(520, width));
-    editorSidebar.style.setProperty("--sidebar-width", `${boundedWidth}px`);
-}
-
-function handleSidebarResizeStart(event) {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    sidebarResizeState = { startX: event.clientX, startWidth: getSidebarWidth() };
-    editorSidebar.classList.add("is-resizing");
-    sidebarResizeHandle.setPointerCapture(event.pointerId);
-    sidebarResizeHandle.addEventListener("pointermove", handleSidebarResizeMove);
-    sidebarResizeHandle.addEventListener("pointerup", handleSidebarResizeEnd, { once: true });
-    sidebarResizeHandle.addEventListener("pointercancel", handleSidebarResizeEnd, { once: true });
-}
-
-function handleSidebarResizeMove(event) {
-    if (!sidebarResizeState) return;
-    setSidebarWidth(sidebarResizeState.startWidth + event.clientX - sidebarResizeState.startX);
-}
-
-function handleSidebarResizeEnd() {
-    sidebarResizeState = null;
-    editorSidebar.classList.remove("is-resizing");
-    sidebarResizeHandle.removeEventListener("pointermove", handleSidebarResizeMove);
-}
-
-function handleSidebarResizeKeydown(event) {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home") return;
-    event.preventDefault();
-    const width = event.key === "Home"
-        ? getSidebarDefaultWidth()
-        : getSidebarWidth() + (event.key === "ArrowRight" ? 20 : -20);
-    setSidebarWidth(width);
-}
-
-function handleSidebarFocusOut(event) {
-    if (!event.relatedTarget || editorSidebar.contains(event.relatedTarget)) return;
-    closeTemporarySidebar();
-}
-
-function handleSidebarOutsideClick(event) {
-    if (!editorSidebar.classList.contains("is-overlay")) return;
-    if (editorSidebar.contains(event.target) || sidebarToggle.contains(event.target)) return;
-    window.clearTimeout(sidebarCollapseTimer);
-    sidebarCollapseTimer = window.setTimeout(() => {
-        sidebarCollapseTimer = null;
-        closeTemporarySidebar();
-    }, 200);
-}
-
-function selectSidebarTab(tabName) {
-    if (editorSidebar.classList.contains("is-hidden")) {
-        editorSidebar.classList.remove("is-hidden");
-        editorSidebar.classList.add("is-overlay");
-        updateSidebarToggle();
-    }
-    for (const tab of editorSidebar.querySelectorAll("[data-sidebar-tab]")) {
-        const active = tab.dataset.sidebarTab === tabName;
-        tab.classList.toggle("is-active", active);
-        tab.setAttribute("aria-selected", String(active));
-    }
-    for (const panel of editorSidebar.querySelectorAll("[data-sidebar-panel]")) {
-        panel.hidden = panel.dataset.sidebarPanel !== tabName;
-    }
-}
-
-function applySidebarState() {
-    document.documentElement.classList.toggle("sidebar-hidden", !sidebarShown);
-    editorSidebar.classList.toggle("is-hidden", !sidebarShown);
-    editorSidebar.classList.remove("is-overlay");
-    updateSidebarToggle();
-}
-
-function closeTemporarySidebar() {
-    if (!editorSidebar.classList.contains("is-overlay")) return;
-    window.clearTimeout(sidebarCollapseTimer);
-    sidebarCollapseTimer = null;
-    editorSidebar.classList.remove("is-overlay");
-    editorSidebar.classList.add("is-hidden");
-    updateSidebarToggle();
-}
-
-function updateSidebarToggle() {
-    const temporary = editorSidebar.classList.contains("is-overlay");
-    const visible = sidebarShown || temporary;
-    sidebarToggle.setAttribute("aria-expanded", String(visible));
-    sidebarToggle.setAttribute("aria-label", sidebarShown ? "Hide sidebar" : "Show sidebar");
-    sidebarToggle.title = sidebarShown ? "Hide sidebar" : "Show sidebar";
-    sidebarToggle.querySelector(".material-symbols-outlined").textContent = visible
-        ? "left_panel_close"
-        : "left_panel_open";
-}
-
-function renderSidebarEmpty(container, message) {
-    const empty = document.createElement("p");
-    empty.className = "sidebar-empty";
-    empty.textContent = message;
-    container.replaceChildren(empty);
 }
 
 function getPathIdentifier() {
@@ -389,31 +495,41 @@ function focusHashTarget() {
 }
 
 function render(focusBlockId = null, cursorOffset = null) {
+    state.rendering = true;
     editor.replaceChildren();
+    state.rendering = false;
 
     if (focusBlockId !== null) {
         state.activeBlockId = focusBlockId;
     }
-    if (!state.content.blocks.some((block) => block.id === state.activeBlockId)) {
+    if (state.activeBlockId !== null && !state.content.blocks.some((block) => block.id === state.activeBlockId)) {
         state.activeBlockId = state.content.blocks[0]?.id ?? null;
     }
 
     for (const block of state.content.blocks) {
         const paragraph = document.createElement("d-paragraph");
-        paragraph.className = "paragraph";
         const isActive = block.id === state.activeBlockId;
-        paragraph.classList.toggle("is-active", isActive);
-        paragraph.classList.toggle("paragraph-justify", block.align === "justify");
-        paragraph.style.textAlign = block.align || "left";
-        paragraph.contentEditable = String(isActive);
-        paragraph.tabIndex = 0;
-        paragraph.setAttribute("aria-readonly", String(!isActive));
-        paragraph.dataset.blockId = block.id;
-        paragraph.id = `block-${block.id}`;
-        renderParagraphContent(paragraph, block);
+        const isEditing = block.id === state.editingBlockId;
+        paragraph.render(block);
+        paragraph.setActive(isActive);
+        paragraph.setEditing(isEditing);
+        paragraph.addEventListener("block-change", handleParagraphBlockChange);
         paragraph.addEventListener("mousedown", (event) => {
-            if (event.button === 0 && state.activeBlockId !== block.id) {
+            if (event.button === 0) {
                 state.pointerDownBlockId = block.id;
+                state.activeBlockId = block.id;
+                updateActiveParagraphMetrics();
+                updateRibbonCopyAvailability();
+                for (const activeParagraph of editor.querySelectorAll(".paragraph.is-active")) {
+                    if (activeParagraph === paragraph) continue;
+                    activeParagraph.classList.remove("is-active");
+                }
+                state.editingBlockId = block.id;
+                paragraph.setEditing(true);
+                paragraph.classList.add("is-active");
+                updateRibbonAlignmentAvailability();
+                updateRibbonCopyAvailability();
+                updateRibbonParagraphAvailability();
             }
         });
         paragraph.addEventListener("click", (event) => {
@@ -421,27 +537,16 @@ function render(focusBlockId = null, cursorOffset = null) {
                 state.suppressClickBlockId = null;
                 return;
             }
-            if (state.activeBlockId !== block.id) {
-                const clientX = event.clientX;
-                const clientY = event.clientY;
-                setTimeout(() => {
-                    if (state.activeBlockId === block.id) {
-                        return;
-                    }
-                    const selection = window.getSelection();
-                    const hasSelection = selection && !selection.isCollapsed
-                        && paragraph.contains(selection.anchorNode)
-                        && paragraph.contains(selection.focusNode);
-                    if (!hasSelection) {
-                        activateBlock(block.id, getCaretOffsetFromPoint(paragraph, clientX, clientY));
-                    }
-                }, 0);
-            }
         });
         paragraph.addEventListener("focus", () => {
-            if (state.activeBlockId !== block.id && state.pointerDownBlockId !== block.id) {
-                activateBlock(block.id, paragraph.textContent.length);
-            }
+            state.activeBlockId = block.id;
+            state.editingBlockId = block.id;
+            paragraph.setEditing(true);
+            paragraph.setActive(true);
+            updateActiveParagraphMetrics();
+            updateRibbonAlignmentAvailability();
+            updateRibbonCopyAvailability();
+            updateRibbonParagraphAvailability();
         });
         paragraph.addEventListener("input", handleInput);
         paragraph.addEventListener("blur", handleParagraphBlur);
@@ -451,103 +556,18 @@ function render(focusBlockId = null, cursorOffset = null) {
         paragraph.addEventListener("keydown", handleKeydown);
         paragraph.addEventListener("dblclick", handleDoubleClick);
 
-        const row = document.createElement("div");
-        row.className = "paragraph-row";
-
-        const paragraphTools = document.createElement("div");
-        paragraphTools.className = "paragraph-tools";
-        const alignmentTools = document.createElement("div");
-        alignmentTools.className = "paragraph-align-tools";
-        for (const alignment of ["left", "center", "right", "justify"]) {
-            const alignmentButton = document.createElement("button");
-            alignmentButton.className = "paragraph-align-button";
-            alignmentButton.type = "button";
-            alignmentButton.setAttribute("aria-label", `Align ${alignment}`);
-            alignmentButton.title = `Align ${alignment}`;
-            alignmentButton.setAttribute("aria-pressed", String((block.align || "left") === alignment));
-            const alignmentIcon = document.createElement("span");
-            alignmentIcon.className = "material-symbols-outlined";
-            alignmentIcon.setAttribute("aria-hidden", "true");
-            alignmentIcon.textContent = `format_align_${alignment}`;
-            alignmentButton.append(alignmentIcon);
-            alignmentButton.addEventListener("click", () => applyParagraphAlignment(block.id, alignment));
-            alignmentTools.append(alignmentButton);
-        }
-
-        const splitButton = document.createElement("button");
-        splitButton.className = "paragraph-split-button";
-        splitButton.type = "button";
-        splitButton.setAttribute("aria-label", "Split paragraph");
-        splitButton.title = "Split paragraph";
-        const splitIcon = document.createElement("span");
-        splitIcon.className = "material-symbols-outlined";
-        splitIcon.setAttribute("aria-hidden", "true");
-        splitIcon.textContent = "height";
-        splitButton.append(splitIcon);
-        let splitPosition = null;
-        splitButton.addEventListener("mousedown", (event) => {
-            event.preventDefault();
-            splitPosition = getSelectionPosition(paragraph);
-        });
-        splitButton.addEventListener("click", () => {
-            const position = splitPosition ?? getSelectionPosition(paragraph);
-            const currentBlock = findBlock(block.id);
-            splitPosition = null;
-            if (!position || !currentBlock) return;
-            splitParagraph(currentBlock, position.start, position.end);
-        });
-
-        const mergeAboveButton = createMergeButton("above", block, paragraph);
-        const mergeBelowButton = createMergeButton("below", block, paragraph);
-
-        const copyLinkButton = document.createElement("button");
-        copyLinkButton.className = "copy-link-floating";
-        copyLinkButton.type = "button";
-        copyLinkButton.setAttribute("aria-label", "Copy link");
-        copyLinkButton.title = "Copy link";
-        const copyIcon = document.createElement("span");
-        copyIcon.className = "material-symbols-outlined";
-        copyIcon.setAttribute("aria-hidden", "true");
-        copyIcon.textContent = state.copiedBlockId === block.id ? "assignment_turned_in" : "assignment";
-        copyLinkButton.append(copyIcon);
-        copyLinkButton.addEventListener("click", () => copyParagraphLink(block, copyLinkButton));
-
-        const paragraphMetrics = document.createElement("div");
-        paragraphMetrics.className = "paragraph-metrics";
-        paragraphMetrics.setAttribute("role", "status");
-        paragraphMetrics.setAttribute("aria-live", "polite");
-        updateParagraphMetrics(paragraphMetrics, block);
-
-        const paragraphActions = document.createElement("div");
-        paragraphActions.className = "paragraph-actions";
-        paragraphActions.append(alignmentTools, splitButton, mergeAboveButton, mergeBelowButton, copyLinkButton);
-        paragraphTools.append(paragraphActions);
-        row.append(paragraph, paragraphTools, paragraphMetrics);
-        row.classList.toggle("is-active", isActive);
-        editor.append(row);
+        editor.append(paragraph);
     }
+
+    updateRibbonAlignmentAvailability();
+    updateRibbonCopyAvailability();
+    updateRibbonParagraphAvailability();
+    updateActiveParagraphMetrics();
 
     if (focusBlockId !== null) {
         const paragraph = findParagraph(focusBlockId);
         if (paragraph) {
-            focusAt(paragraph, cursorOffset ?? paragraph.textContent.length);
-        }
-    }
-}
-
-function activateBlock(blockId, cursorOffset = null) {
-    state.activeBlockId = blockId;
-    for (const paragraph of editor.querySelectorAll(".paragraph")) {
-        const isActive = paragraph.dataset.blockId === blockId;
-        paragraph.classList.toggle("is-active", isActive);
-        paragraph.contentEditable = String(isActive);
-        paragraph.setAttribute("aria-readonly", String(!isActive));
-        paragraph.parentElement?.classList.toggle("is-active", isActive);
-    }
-    if (cursorOffset !== null) {
-        const paragraph = findParagraph(blockId);
-        if (paragraph) {
-            focusAt(paragraph, cursorOffset);
+            paragraph.focusAt(cursorOffset ?? paragraph.textContent.length);
         }
     }
 }
@@ -557,28 +577,126 @@ function updateParagraphMetrics(metricsElement, block) {
     const wordCount = block.text.trim() === "" ? 0 : block.text.trim().split(/\s+/u).length;
     const markCount = block.marks?.length ?? 0;
     const linkCount = block.links?.length ?? 0;
-    metricsElement.textContent = `${characterCount.toLocaleString("sr-Latn")} / ${maxParagraphRunes.toLocaleString("sr-Latn")} znakova · ${wordCount.toLocaleString("sr-Latn")} reči · ${markCount} / ${maxParagraphMarks} formatiranja · ${linkCount} / ${maxParagraphLinks} linkova`;
+    const referenceCount = block.references?.length ?? 0;
+    metricsElement.textContent = `${characterCount.toLocaleString("sr-Latn")} / ${maxParagraphRunes.toLocaleString("sr-Latn")} znakova · ${wordCount.toLocaleString("sr-Latn")} reči · ${markCount} / ${maxParagraphMarks} formatiranja · ${linkCount} / ${maxParagraphLinks} linkova · ${referenceCount} / ${maxParagraphReferences} referenci`;
 }
 
-function createMergeButton(direction, block, paragraph) {
-    const button = document.createElement("button");
-    button.className = "paragraph-merge-button";
-    button.classList.add(`paragraph-merge-${direction}`);
-    button.type = "button";
-    button.setAttribute("aria-label", `Merge with ${direction}`);
-    button.title = `Merge with ${direction}`;
-    button.disabled = !canMergeParagraph(block, direction, paragraph, false);
-    const icon = document.createElement("span");
-    icon.className = "material-symbols-outlined";
-    icon.setAttribute("aria-hidden", "true");
-    icon.textContent = direction === "above" ? "vertical_align_top" : "vertical_align_bottom";
-    button.append(icon);
-    button.addEventListener("mousedown", (event) => event.preventDefault());
-    button.addEventListener("click", () => mergeParagraph(block.id, direction));
-    return button;
+function updateActiveParagraphMetrics() {
+    if (!paragraphMetricsStatus) return;
+    const block = state.activeBlockId ? findBlock(state.activeBlockId) : null;
+    if (block) {
+        updateParagraphMetrics(paragraphMetricsStatus, block);
+    } else {
+        paragraphMetricsStatus.textContent = "";
+    }
+}
+
+function updateRibbonCopyAvailability() {
+    const button = document.querySelector("#copy-block-reference");
+    if (button) button.disabled = !state.activeBlockId || !findBlock(state.activeBlockId);
+    incomingReferencesButton.disabled = !state.activeBlockId || !findBlock(state.activeBlockId);
+}
+
+async function openIncomingReferences(blockID = state.activeBlockId) {
+    const block = blockID ? findBlock(blockID) : null;
+    if (!block) return;
+
+    incomingReferencesModal.hidden = false;
+    incomingReferencesList.replaceChildren();
+    const loading = document.createElement("p");
+    loading.className = "incoming-references-empty";
+    loading.textContent = "Loading...";
+    incomingReferencesList.append(loading);
+
+    try {
+        const references = await loadIncomingReferences(state.documentId, block.id);
+        renderIncomingReferences(block.id, references);
+    } catch (error) {
+        incomingReferencesList.replaceChildren();
+        const failure = document.createElement("p");
+        failure.className = "incoming-references-empty";
+        failure.textContent = "Unable to load incoming references.";
+        incomingReferencesList.append(failure);
+    }
+}
+
+function renderIncomingReferences(targetBlockID, references) {
+    incomingReferencesList.replaceChildren();
+    if (references.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "incoming-references-empty";
+        empty.textContent = "No incoming references.";
+        incomingReferencesList.append(empty);
+        return;
+    }
+
+    for (const reference of references) {
+        const item = document.createElement("div");
+        item.className = "incoming-reference-item";
+        const source = document.createElement("a");
+        source.href = `/documents/${encodeURIComponent(reference.sourceSlug)}#block-${encodeURIComponent(reference.sourceBlockId)}`;
+        source.textContent = reference.sourceDocument;
+        source.title = `Open ${reference.sourceBlockId}`;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "incoming-reference-remove";
+        remove.dataset.incomingReferenceId = String(reference.id);
+        remove.dataset.targetBlockId = targetBlockID;
+        remove.setAttribute("aria-label", `Remove reference from ${reference.sourceDocument}`);
+        remove.title = "Remove reference";
+        const icon = document.createElement("span");
+        icon.className = "material-symbols-outlined";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = "link_off";
+        remove.append(icon);
+        item.append(source, remove);
+        incomingReferencesList.append(item);
+    }
+}
+
+async function removeIncomingReferenceFromModal(button) {
+    button.disabled = true;
+    try {
+        await removeIncomingReference(state.documentId, button.dataset.targetBlockId, button.dataset.incomingReferenceId);
+        const documentState = await loadDocument(state.slug);
+        applyDocumentState(documentState);
+        await openIncomingReferences(button.dataset.targetBlockId);
+    } catch (error) {
+        button.disabled = false;
+    }
+}
+
+function closeIncomingReferences() {
+    incomingReferencesModal.hidden = true;
+}
+
+function updateRibbonParagraphAvailability() {
+    const block = state.editingBlockId ? findBlock(state.editingBlockId) : null;
+    const paragraph = block ? findParagraph(block.id) : null;
+    const canEdit = Boolean(block && paragraph);
+    const splitButton = document.querySelector("#split-paragraph");
+    if (splitButton) splitButton.disabled = !canEdit || isReferencedParagraph(block);
+    for (const button of document.querySelectorAll("[data-merge-direction]")) {
+        button.disabled = !canEdit || !canMergeParagraph(block, button.dataset.mergeDirection, paragraph);
+    }
+}
+
+function isReferencedParagraph(block) {
+    if (!block || !state.content) {
+        return false;
+    }
+    return state.referencedBlockIds.has(block.id) || state.content.blocks.some((candidate) =>
+        (candidate.references ?? []).some((reference) =>
+            String(reference.documentId) === String(state.documentId)
+            && reference.blockId === block.id
+        )
+    );
 }
 
 function canMergeParagraph(block, direction, paragraph = findParagraph(block.id), requireDOM = true) {
+    if (!block || block.type !== "paragraph") {
+        return false;
+    }
     const index = state.content.blocks.indexOf(block);
     const adjacentIndex = direction === "above" ? index - 1 : index + 1;
     if (index < 0 || adjacentIndex < 0 || adjacentIndex >= state.content.blocks.length) {
@@ -587,7 +705,10 @@ function canMergeParagraph(block, direction, paragraph = findParagraph(block.id)
 
     const adjacentBlock = state.content.blocks[adjacentIndex];
     const adjacentParagraph = adjacentBlock && findParagraph(adjacentBlock.id);
-    if (!adjacentBlock) {
+    if (!adjacentBlock || adjacentBlock.type !== "paragraph") {
+        return false;
+    }
+    if (isReferencedParagraph(block) || isReferencedParagraph(adjacentBlock)) {
         return false;
     }
     if (!requireDOM) {
@@ -620,28 +741,19 @@ function mergeParagraph(blockId, direction) {
     queueSave();
 }
 
-function applyParagraphAlignment(blockId, alignment) {
-    const block = findBlock(blockId);
-    const paragraph = findParagraph(blockId);
-    if (!block || !paragraph || (block.align || "left") === alignment) return;
-
-    recordHistory(`Paragraph alignment: ${alignment}`);
-    if (alignment === "left") {
-        delete block.align;
-    } else {
-        block.align = alignment;
+function updateRibbonAlignmentAvailability() {
+    const activeBlock = state.activeBlockId ? findBlock(state.activeBlockId) : null;
+    const canEdit = Boolean(state.editingBlockId && findBlock(state.editingBlockId));
+    const alignment = activeBlock?.align || "left";
+    for (const button of document.querySelectorAll(".ribbon-align-button")) {
+        button.disabled = !canEdit;
+        button.setAttribute("aria-pressed", String(Boolean(activeBlock && button.dataset.alignment === alignment)));
     }
-    paragraph.style.textAlign = alignment;
-    paragraph.classList.toggle("paragraph-justify", alignment === "justify");
-    for (const button of paragraph.parentElement.querySelectorAll(".paragraph-align-button")) {
-        button.setAttribute("aria-pressed", String(button.title === `Align ${alignment}`));
-    }
-    queueSave();
 }
 
-function renderParagraphContent(paragraph, block) {
+function renderParagraphContent(paragraph, block, changedRanges = []) {
     const boundaries = new Set([0, block.text.length]);
-    for (const range of [...(block.marks ?? []), ...(block.links ?? [])]) {
+    for (const range of [...(block.marks ?? []), ...(block.links ?? []), ...(block.references ?? []), ...changedRanges]) {
         boundaries.add(range.start);
         boundaries.add(range.end);
     }
@@ -656,6 +768,8 @@ function renderParagraphContent(paragraph, block) {
         const text = block.text.slice(start, end);
         const marks = (block.marks ?? []).filter((mark) => mark.start <= start && mark.end >= end);
         const link = (block.links ?? []).find((candidate) => candidate.start <= start && candidate.end >= end);
+        const reference = (block.references ?? []).find((candidate) => candidate.start <= start && candidate.end >= end);
+
         let node = document.createTextNode(text);
         for (const mark of marks) {
             const element = document.createElement(markElement(mark.style));
@@ -663,96 +777,43 @@ function renderParagraphContent(paragraph, block) {
             node = element;
         }
         if (link) {
-            const linkElement = document.createElement(link.reference ? "d-reference" : "d-link");
-            linkElement.setAttribute("href", `/documents/${encodeURIComponent(link.documentId)}#block-${encodeURIComponent(link.blockId)}`);
-            linkElement.contentEditable = "true";
-            linkElement.addEventListener("click", handleParagraphLinkClick);
-            if (link.reference) {
-                linkElement.addEventListener("mouseenter", () => showReferencePreview(linkElement));
-                linkElement.addEventListener("mouseleave", scheduleHideReferencePreview);
-                linkElement.addEventListener("focus", () => showReferencePreview(linkElement));
-                linkElement.addEventListener("blur", scheduleHideReferencePreview);
-            }
+            const linkElement = document.createElement("d-link");
+            linkElement.setAttribute("href", getParagraphLinkHref(link));
             linkElement.append(node);
             node = linkElement;
+        }
+        if (reference) {
+            const referenceElement = document.createElement("d-reference");
+            referenceElement.dataset.documentId = reference.documentId;
+            referenceElement.dataset.blockId = reference.blockId;
+            referenceElement.append(node);
+            node = referenceElement;
+        }
+        if (changedRanges.some((range) => range.start <= start && range.end >= end)) {
+            const changeElement = document.createElement("d-change");
+            changeElement.append(node);
+            node = changeElement;
         }
         paragraph.append(node);
     }
 }
 
-referencePreview.addEventListener("mouseenter", () => window.clearTimeout(referencePreviewTimer));
-referencePreview.addEventListener("mouseleave", scheduleHideReferencePreview);
-
-function showReferencePreview(reference) {
-    window.clearTimeout(referencePreviewTimer);
-    activeReference = reference;
-    referencePreviewText.textContent = "Loading...";
-    referencePreview.hidden = false;
-    positionReferencePreview(reference);
-
-    const target = parseParagraphLink(reference.getAttribute("href") ?? "");
-    if (!target) return;
-    const cacheKey = `${target.documentId}:${target.blockId}`;
-    if (referencePreviewCache.has(cacheKey)) {
-        referencePreviewText.textContent = referencePreviewCache.get(cacheKey);
-        positionReferencePreview(reference);
-        return;
-    }
-
-    loadDocument(target.documentId).then((documentState) => {
-        const block = documentState.content.blocks.find((candidate) => candidate.id === target.blockId);
-        const text = block?.text || "Empty paragraph";
-        referencePreviewCache.set(cacheKey, text);
-        if (activeReference === reference) {
-            referencePreviewText.textContent = text;
-            positionReferencePreview(reference);
-        }
-    }).catch(() => {
-        if (activeReference === reference) referencePreviewText.textContent = "Unable to load paragraph";
-    });
+function getParagraphLinkHref(link) {
+    return link.url;
 }
 
-function positionReferencePreview(reference) {
-    const bounds = reference.getBoundingClientRect();
-    const width = Math.min(360, window.innerWidth - 24);
-    const left = Math.max(12, Math.min(bounds.left, window.innerWidth - width - 12));
-    const top = bounds.bottom + 10;
-    referencePreview.style.left = `${left}px`;
-    referencePreview.style.top = `${top}px`;
-    referencePreview.style.width = `${width}px`;
+function getReferenceTarget(reference) {
+    return {
+        documentId: reference.dataset.documentId,
+        blockId: reference.dataset.blockId,
+    };
 }
 
-function scheduleHideReferencePreview() {
-    window.clearTimeout(referencePreviewTimer);
-    referencePreviewTimer = window.setTimeout(() => {
-        activeReference = null;
-        referencePreview.hidden = true;
-    }, 140);
-}
-
-function handleParagraphLinkClick(event) {
-    const href = event.currentTarget.getAttribute("href");
-    if (!href) {
-        event.preventDefault();
-        return;
+function getPastedLinkTarget(node) {
+    if (node.tagName === "D-REFERENCE") {
+        return parseReferenceLink(`/documents/${encodeURIComponent(node.dataset.documentId)}#block-${encodeURIComponent(node.dataset.blockId)}`);
     }
-
-    if (event.currentTarget.tagName === "D-REFERENCE") {
-        event.preventDefault();
-        window.location.assign(href);
-        return;
-    }
-
-    if (event.ctrlKey || event.metaKey) {
-        event.preventDefault();
-        if (event.shiftKey) {
-            window.open(href, "_blank", "noopener");
-        } else {
-            window.location.assign(href);
-        }
-        return;
-    }
-    event.preventDefault();
+    return parseExternalLink(node.getAttribute("href") ?? "");
 }
 
 function handleCopy(event) {
@@ -774,9 +835,18 @@ function handleCopy(event) {
     event.preventDefault();
 }
 
-const pasteEditorTags = new Set(["D-BOLD", "D-ITALIC", "D-UNDERLINE", "D-STRIKE", "D-HIGHLIGHT", "D-SUBSCRIPT", "D-SUPERSCRIPT", "D-LINK", "D-REFERENCE"]);
+const pasteEditorTags = new Set(["D-BOLD", "D-ITALIC", "D-UNDERLINE", "D-STRIKE", "D-HIGHLIGHT", "D-COLOR", "D-SUBSCRIPT", "D-SUPERSCRIPT", "D-LINK", "D-REFERENCE"]);
 
 function handlePaste(event) {
+    const paragraph = event.currentTarget;
+    if (isReferencedParagraph(findBlock(paragraph.dataset.blockId))) {
+        event.preventDefault();
+        return;
+    }
+    if (state.editingBlockId !== paragraph.dataset.blockId) {
+        event.preventDefault();
+        return;
+    }
     const clipboard = event.clipboardData;
     if (!clipboard) {
         return;
@@ -828,15 +898,20 @@ function appendPastedNodes(source, target, root = true) {
         }
 
         if (pasteEditorTags.has(node.tagName)) {
-            if ((node.tagName === "D-LINK" || node.tagName === "D-REFERENCE") && !parseParagraphLink(node.getAttribute("href") ?? "")) {
+            if ((node.tagName === "D-LINK" || node.tagName === "D-REFERENCE") && !getPastedLinkTarget(node)) {
                 appendPastedNodes(node, target);
                 continue;
             }
 
             const element = document.createElement(node.tagName.toLowerCase());
             if (node.tagName === "D-LINK" || node.tagName === "D-REFERENCE") {
-                const link = parseParagraphLink(node.getAttribute("href"));
-                element.setAttribute("href", `/documents/${encodeURIComponent(link.documentId)}#block-${encodeURIComponent(link.blockId)}`);
+                const link = getPastedLinkTarget(node);
+                if (node.tagName === "D-REFERENCE") {
+                    element.dataset.documentId = link.documentId;
+                    element.dataset.blockId = link.blockId;
+                } else {
+                    element.setAttribute("href", link.url);
+                }
             }
             appendPastedNodes(node, element, false);
             target.append(element);
@@ -886,14 +961,16 @@ function splitFragmentByLines(fragment, lines) {
         }
 
         if (pasteEditorTags.has(node.tagName)) {
-            if ((node.tagName === "D-LINK" || node.tagName === "D-REFERENCE") && !parseParagraphLink(node.getAttribute("href") ?? "")) {
+            if ((node.tagName === "D-LINK" || node.tagName === "D-REFERENCE") && !getPastedLinkTarget(node)) {
                 for (const child of node.childNodes) appendNode(child, target);
                 return;
             }
             const element = document.createElement(node.tagName.toLowerCase());
             if (node.tagName === "D-LINK" || node.tagName === "D-REFERENCE") {
-                const link = parseParagraphLink(node.getAttribute("href"));
-                element.setAttribute("href", `/documents/${encodeURIComponent(link.documentId)}#block-${encodeURIComponent(link.blockId)}`);
+                const link = getPastedLinkTarget(node);
+                element.dataset.documentId = link.documentId;
+                element.dataset.blockId = link.blockId;
+                if (node.tagName === "D-LINK") element.setAttribute("href", getParagraphLinkHref(link));
             }
             const startChildren = element.childNodes.length;
             for (const child of node.childNodes) appendNode(child, element);
@@ -979,6 +1056,9 @@ function insertPastedFragment(paragraph, fragment, range, selection, suppressHis
 }
 
 function insertPastedBlocks(paragraph, parts, range, selection) {
+    if (isReferencedParagraph(findBlock(paragraph.dataset.blockId))) {
+        return;
+    }
     const start = getTextOffset(paragraph, range.startContainer, range.startOffset);
     const partLengths = parts.map((part) => part.textContent.length);
     insertPastedFragment(paragraph, parts[0], range, selection);
@@ -1011,6 +1091,7 @@ function markElement(style) {
         underline: "d-underline",
         strike: "d-strike",
         highlight: "d-highlight",
+        color: "d-color",
         subscript: "d-subscript",
         superscript: "d-superscript",
     }[style] ?? "span";
@@ -1019,7 +1100,13 @@ function markElement(style) {
 function handleInput(event) {
     const paragraph = event.currentTarget;
     const block = findBlock(paragraph.dataset.blockId);
-    if (!block) {
+    if (!block || state.editingBlockId !== block.id) {
+        paragraph.textContent = block?.text ?? "";
+        return;
+    }
+    if (isReferencedParagraph(block)) {
+        const cursorOffset = getSelectionPosition(paragraph)?.start ?? block.text.length;
+        render(block.id, cursorOffset);
         return;
     }
 
@@ -1027,46 +1114,39 @@ function handleInput(event) {
         recordHistory(event.inputType === "insertFromPaste" ? "Text paste" : "Text edit");
     }
     state.contentDirty = true;
-    block.text = paragraph.textContent.replace(/[\r\n]/g, "");
-    const metadata = readInlineMetadata(paragraph);
-    block.marks = metadata.marks;
-    block.links = metadata.links;
-    const paragraphMetrics = paragraph.parentElement?.querySelector(".paragraph-metrics");
-    if (paragraphMetrics) {
-        updateParagraphMetrics(paragraphMetrics, block);
-    }
+    const { textChanged } = paragraph.syncContentFromDOM();
+    updateActiveParagraphMetrics();
     const cursorOffset = getSelectionPosition(paragraph)?.start ?? block.text.length;
-    if (paragraph.textContent !== block.text) {
+    if (textChanged) {
         render(block.id, cursorOffset);
     }
     repairLegacyOffsetBlocks(state.content);
-    if (event.inputType === "insertFromPaste") {
-        saveImmediately();
-    } else {
-        scheduleSafetySave();
-    }
+    queueSave();
 }
 
 function handleParagraphBlur(event) {
     const paragraph = event.currentTarget;
-    if (!paragraph.isConnected) {
-        return;
-    }
     const relatedTarget = event.relatedTarget;
-    if (relatedTarget instanceof Node && (
-        paragraph.parentElement?.contains(relatedTarget)
-        || selectionToolbar.contains(relatedTarget)
-    )) {
+    if (state.rendering) return;
+    if (relatedTarget instanceof Node && paragraph.contains(relatedTarget)) {
         return;
     }
-    window.setTimeout(() => normalizeParagraphOnBlur(paragraph), 0);
+    paragraph.classList.remove("is-active");
+    if (state.editingBlockId === paragraph.dataset.blockId) {
+        normalizeParagraphOnBlur(paragraph);
+        state.editingBlockId = null;
+        state.activeBlockId = null;
+        updateActiveParagraphMetrics();
+        paragraph.contentEditable = "false";
+        paragraph.setAttribute("aria-readonly", "true");
+        updateRibbonAlignmentAvailability();
+        updateRibbonCopyAvailability();
+        updateRibbonParagraphAvailability();
+    }
 }
 
-function normalizeParagraphOnBlur(paragraph) {
+function normalizeParagraphOnBlur(paragraph, persist = true) {
     if (!paragraph.isConnected || paragraph.contains(document.activeElement)) {
-        return;
-    }
-    if (paragraph.parentElement?.contains(document.activeElement) || selectionToolbar.contains(document.activeElement)) {
         return;
     }
     const block = findBlock(paragraph.dataset.blockId);
@@ -1093,9 +1173,10 @@ function normalizeParagraphOnBlur(paragraph) {
     recordHistory("Text normalization");
     block.marks = remapRangesForTextChange(block.marks, start, oldEnd, newEnd - start);
     block.links = remapRangesForTextChange(block.links, start, oldEnd, newEnd - start);
+    block.references = remapRangesForTextChange(block.references, start, oldEnd, newEnd - start);
     block.text = normalizedText;
     render(block.id);
-    queueSave();
+    if (persist) queueSave();
 }
 
 function normalizeParagraphText(value) {
@@ -1109,80 +1190,41 @@ function handleDoubleClick(event) {
     const paragraph = event.currentTarget;
     const position = getSelectionPosition(paragraph);
     if (!position || position.start === position.end) {
+        state.doubleClickSelectionPending = false;
         return;
     }
-
     const text = paragraph.textContent;
     let start = position.start;
     let end = position.end;
-    while (start < end && /\s/.test(text[start])) {
-        start += 1;
-    }
-    while (end > start && /\s/.test(text[end - 1])) {
-        end -= 1;
-    }
+    while (start < end && /\s/.test(text[start])) start += 1;
+    while (end > start && /\s/.test(text[end - 1])) end -= 1;
     selectOffsets(paragraph, start, end);
+    state.doubleClickSelectionPending = false;
+    handleSelectionChange();
 }
 
 function handleBeforeInput(event) {
-    if (event.inputType !== "insertParagraph") {
-        return;
-    }
-
     const paragraph = event.currentTarget;
     const block = findBlock(paragraph.dataset.blockId);
     const position = getSelectionPosition(paragraph);
     if (!block || !position) {
         return;
     }
+    if (isReferencedParagraph(block)) {
+        event.preventDefault();
+        return;
+    }
+
+    if (state.editingBlockId !== block.id && event.inputType !== "insertParagraph") {
+        event.preventDefault();
+        return;
+    }
+    if (event.inputType !== "insertParagraph") {
+        return;
+    }
 
     event.preventDefault();
     splitParagraph(block, position.start, position.end);
-}
-
-function readInlineMetadata(paragraph) {
-    const marks = [];
-    const links = [];
-    let offset = 0;
-    const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
-    let textNode = walker.nextNode();
-    while (textNode) {
-        const length = textNode.textContent.length;
-        const start = offset;
-        const end = offset + length;
-        let markElement = textNode.parentElement;
-        while (markElement && markElement !== paragraph) {
-            const style = {
-                STRONG: "bold", B: "bold", EM: "italic", I: "italic", U: "underline",
-                S: "strike", STRIKE: "strike", DEL: "strike",
-                SUB: "subscript", SUP: "superscript",
-                "D-BOLD": "bold", "D-ITALIC": "italic", "D-UNDERLINE": "underline",
-                "D-STRIKE": "strike", "D-HIGHLIGHT": "highlight",
-                "D-SUBSCRIPT": "subscript", "D-SUPERSCRIPT": "superscript",
-            }[markElement.tagName];
-            if (style) marks.push({ start, end, style });
-            if (markElement.style.backgroundColor) marks.push({ start, end, style: "highlight" });
-            markElement = markElement.parentElement;
-        }
-        const linkElement = textNode.parentElement.closest("d-link, d-reference");
-        if (linkElement) {
-            const target = parseParagraphLink(linkElement.getAttribute("href") ?? "");
-            if (target) links.push({
-                start,
-                end,
-                documentId: target.documentId,
-                blockId: target.blockId,
-                ...(linkElement.tagName === "D-REFERENCE" ? { reference: true } : {}),
-            });
-        }
-        offset = end;
-        textNode = walker.nextNode();
-    }
-    return { marks: mergeRanges(marks), links: mergeRanges(links) };
-}
-
-function mergeRanges(ranges) {
-    return ranges.filter((range, index, values) => index === values.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(range)));
 }
 
 function repairLegacyOffsetBlocks(content) {
@@ -1197,6 +1239,7 @@ function repairLegacyOffsetBlocks(content) {
 
             block.marks = cloneRanges(reference.marks);
             block.links = cloneRanges(reference.links);
+            block.references = cloneRanges(reference.references);
             repaired = true;
             break;
         }
@@ -1207,16 +1250,19 @@ function repairLegacyOffsetBlocks(content) {
 function hasShiftedMetadata(block, reference) {
     const currentMarks = block.marks ?? [];
     const currentLinks = block.links ?? [];
+    const currentReferences = block.references ?? [];
     const referenceMarks = reference.marks ?? [];
     const referenceLinks = reference.links ?? [];
     if (currentMarks.length + currentLinks.length === 0
         || currentMarks.length !== referenceMarks.length
-        || currentLinks.length !== referenceLinks.length) {
+        || currentLinks.length !== referenceLinks.length
+        || currentReferences.length !== (reference.references ?? []).length) {
         return false;
     }
 
     return JSON.stringify(currentMarks) === JSON.stringify(shiftRanges(referenceMarks))
-        && JSON.stringify(currentLinks) === JSON.stringify(shiftRanges(referenceLinks));
+        && JSON.stringify(currentLinks) === JSON.stringify(shiftRanges(referenceLinks))
+        && JSON.stringify(currentReferences) === JSON.stringify(shiftRanges(reference.references ?? []));
 }
 
 function shiftRanges(ranges) {
@@ -1230,9 +1276,11 @@ function cloneRanges(ranges) {
 function normalizeContentMetadata(content) {
     for (const block of content.blocks) {
         block.marks = normalizeRanges(block.marks, (range) => range.style);
-        block.links = normalizeRanges(block.links, (range) => `${range.documentId}:${range.blockId}`);
+        block.links = normalizeRanges(block.links, (range) => range.url);
+        block.references = normalizeRanges(block.references);
         if (block.marks.length === 0) delete block.marks;
         if (block.links.length === 0) delete block.links;
+        if (block.references.length === 0) delete block.references;
     }
 }
 
@@ -1251,11 +1299,18 @@ function normalizeRanges(ranges, identity) {
 }
 
 function handleSelectionChange() {
-    const capsMenu = selectionToolbar.querySelector(".caps-menu");
-    if (capsMenu) closeCapsMenu(capsMenu);
+    if (state.doubleClickSelectionPending) {
+        clearSavedSelectionHighlight();
+        return;
+    }
+    updateRibbonFormatAvailability(false);
+    const commandBarFocused = false;
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-        selectionToolbar.hidden = true;
+        if (!commandBarFocused) {
+            state.hasTextSelection = false;
+            clearSavedSelectionHighlight();
+        }
         return;
     }
     const anchorElement = selection.anchorNode?.nodeType === Node.ELEMENT_NODE
@@ -1263,58 +1318,131 @@ function handleSelectionChange() {
         : selection.anchorNode?.parentElement;
     const paragraph = anchorElement?.closest(".paragraph");
     if (!paragraph || !paragraph.contains(selection.focusNode)) {
-        selectionToolbar.hidden = true;
+        if (!commandBarFocused) {
+            state.hasTextSelection = false;
+            clearSavedSelectionHighlight();
+        }
         return;
     }
     const position = getSelectionPosition(paragraph);
     if (!position || position.start === position.end) {
-        selectionToolbar.hidden = true;
+        if (!commandBarFocused) {
+            state.hasTextSelection = false;
+            clearSavedSelectionHighlight();
+        }
         return;
     }
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
     state.savedSelection = {
         blockId: paragraph.dataset.blockId,
         start: position.start,
         end: position.end,
     };
-    selectionToolbar.hidden = false;
-    const toolbarWidth = selectionToolbar.offsetWidth;
-    const toolbarHeight = selectionToolbar.offsetHeight;
-    const centeredLeft = rect.left + rect.width / 2 - toolbarWidth / 2;
-    const left = Math.min(Math.max(8, centeredLeft), window.innerWidth - toolbarWidth - 8);
-    const top = Math.max(8, rect.top - toolbarHeight - 10);
-    selectionToolbar.style.left = `${left + window.scrollX}px`;
-    selectionToolbar.style.top = `${top + window.scrollY}px`;
-    updateToolbarState(paragraph, position);
+    state.hasTextSelection = true;
+    updateSavedSelectionHighlight(paragraph, position);
+    if (state.editingBlockId !== paragraph.dataset.blockId) {
+        return;
+    }
+    updateRibbonFormatAvailability(true, paragraph, position);
+    if (state.selectionPointerDown) {
+        updateSavedSelectionHighlight(paragraph, position);
+        return;
+    }
+    updateSavedSelectionHighlight(paragraph, position);
 }
 
-function updateToolbarState(paragraph, position) {
+function updateSavedSelectionHighlight(paragraph, position) {
+    if (!window.CSS?.highlights) return;
+    const range = createRangeForOffsets(paragraph, position.start, position.end);
+    if (!range) return;
+    CSS.highlights.set(selectionHighlightName, new Highlight(range));
+}
+
+function restoreSavedSelectionHighlight() {
+    const savedSelection = state.savedSelection;
+    if (!state.hasTextSelection || !savedSelection) return;
+    const paragraph = findParagraph(savedSelection.blockId);
+    if (paragraph) {
+        updateSavedSelectionHighlight(paragraph, savedSelection);
+    }
+}
+
+function clearSavedSelectionHighlight() {
+    window.CSS?.highlights?.delete(selectionHighlightName);
+}
+
+function getSelectionContext({ requireEditing = false } = {}) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const anchorElement = selection.anchorNode?.nodeType === Node.ELEMENT_NODE
+        ? selection.anchorNode
+        : selection.anchorNode?.parentElement;
+    const paragraph = anchorElement?.closest(".paragraph");
+    if (!paragraph || !paragraph.contains(selection.focusNode)) return null;
     const block = findBlock(paragraph.dataset.blockId);
-    for (const button of selectionToolbar.querySelectorAll("button[data-format]")) {
-        const format = button.dataset.format;
-        const active = block && position && format !== "clear" && (
-            format === "link"
-                ? block.links?.some((link) => link.start <= position.start && link.end >= position.end)
-                : block.marks?.some((mark) => mark.style === format && mark.start <= position.start && mark.end >= position.end)
-        );
+    const position = getSelectionPosition(paragraph);
+    if (!block || !position || position.start === position.end) return null;
+    if (requireEditing && state.editingBlockId !== block.id) return null;
+    return { selection, paragraph, block, position };
+}
+
+function isTextFormatActive(format) {
+    const savedSelection = state.savedSelection;
+    if (!state.hasTextSelection || !savedSelection || savedSelection.start === savedSelection.end) return false;
+    const block = findBlock(savedSelection.blockId);
+    return Boolean(block?.marks?.some((mark) => (
+        mark.style === format
+        && mark.start <= savedSelection.start
+        && mark.end >= savedSelection.end
+    )));
+}
+
+function updateRibbonFormatAvailability(enabled, paragraph = null, position = null) {
+    const block = paragraph ? findBlock(paragraph.dataset.blockId) : null;
+    for (const button of document.querySelectorAll(".ribbon-format-button")) {
+        button.disabled = !enabled || Boolean(block && button.dataset.caps && isReferencedParagraph(block));
+        const active = enabled && block && position
+            && block.marks?.some((mark) => (
+                mark.style === button.dataset.format
+                && mark.start <= position.start
+                && mark.end >= position.end
+            ));
         button.setAttribute("aria-pressed", String(Boolean(active)));
-        if (format === "link") {
-            const icon = button.querySelector(".material-symbols-outlined");
-            if (icon) {
-                icon.textContent = active ? "link_off" : "link";
-            }
-            button.title = active ? "Remove link" : "Link";
+    }
+    for (const button of document.querySelectorAll(".ribbon-link-button")) {
+        const linkKind = button.dataset.linkKind;
+        const hasLink = Boolean(enabled && block && position && linkKind
+            && selectionHasLink({ block, position }, linkKind));
+        button.disabled = !enabled;
+        button.setAttribute("aria-pressed", String(hasLink));
+        if (linkKind) {
+            const label = hasLink ? `Remove ${linkKind}` : `Add ${linkKind === "reference" ? "ref" : "link"}`;
+            button.setAttribute("aria-label", label);
+            button.title = label;
         }
     }
 }
 
+function selectionHasLink({ block, position }, linkType) {
+    const ranges = linkType === "reference" ? block.references : block.links;
+    return Boolean(ranges?.some((range) => linkType === "reference"
+        ? range.start >= position.start && range.start <= position.end
+        : range.start >= position.start && range.end <= position.end));
+}
+
 function handleToolbarMouseDown(event) {
-    if (selectionToolbar.contains(event.target)) {
+    if (event.target.closest?.(".ribbon-format-button, .ribbon-link-button, .ribbon-align-button, .ribbon-copy-button, .ribbon-paragraph-button, .ribbon-history-button")) {
         event.preventDefault();
-        const button = event.target.closest("button");
-        if (button?.dataset.format !== "caps") {
-            restoreSavedSelection();
-        }
+        if (state.hasTextSelection) restoreSavedSelection();
+        return;
+    }
+    state.selectionPointerDown = event.button === 0
+        && event.target instanceof Element
+        && Boolean(event.target.closest(".paragraph"));
+    state.doubleClickSelectionPending = event.button === 0 && event.detail === 2
+        && event.target instanceof Element
+        && Boolean(event.target.closest(".paragraph"));
+    if (event.button === 0) {
+        clearSavedSelectionHighlight();
     }
 }
 
@@ -1327,79 +1455,51 @@ function restoreSavedSelection() {
     }
 }
 
-function handleToolbarFocusOut(event) {
-    const capsMenu = event.target.closest(".caps-menu");
-    if (!capsMenu || capsMenu.contains(event.relatedTarget)) return;
-    closeCapsMenu(capsMenu);
-}
-
-function closeCapsMenu(capsMenu) {
-    const capsButton = capsMenu.querySelector("[data-format=\"caps\"]");
-    const menu = capsMenu.querySelector(".caps-options");
-    if (!capsButton || !menu) return;
-    capsButton.setAttribute("aria-expanded", "false");
-    menu.hidden = true;
-}
-
-function handleToolbarClick(event) {
-    const button = event.target.closest("button[data-format], button[data-caps]");
-    if (!button) return;
-    if (button.dataset.format === "caps") {
-        const menu = button.parentElement.querySelector(".caps-options");
-        const expanded = button.getAttribute("aria-expanded") === "true";
-        button.setAttribute("aria-expanded", String(!expanded));
-        menu.hidden = expanded;
-        return;
-    }
-    if (button.dataset.caps) {
-        restoreSavedSelection();
-        applyCaseTransform(button.dataset.caps);
-        return;
-    }
+function clearSelectedFormatting() {
     restoreSavedSelection();
-    const selection = window.getSelection();
-    const anchorElement = selection?.anchorNode?.nodeType === Node.ELEMENT_NODE
-        ? selection.anchorNode
-        : selection?.anchorNode?.parentElement;
-    const paragraph = anchorElement?.closest(".paragraph");
-    if (!paragraph) return;
-    const block = findBlock(paragraph.dataset.blockId);
-    const position = getSelectionPosition(paragraph);
-    if (!block || !position) return;
-    if (button.dataset.format === "clear") {
-        recordHistory("Formatting cleared");
-        block.marks = removeRanges(block.marks ?? [], position.start, position.end);
-        render();
-        const updatedParagraph = findParagraph(block.id);
-        selectOffsets(updatedParagraph, position.start, position.end);
-        queueSave();
-        handleSelectionChange();
-        return;
+    const context = getSelectionContext({ requireEditing: true });
+    if (!context) return;
+    const { paragraph, block, position } = context;
+    recordHistory("Formatting cleared");
+    paragraph.clearMarks(position.start, position.end);
+    render();
+    const updatedParagraph = findParagraph(block.id);
+    selectOffsets(updatedParagraph, position.start, position.end);
+    queueSave();
+    handleSelectionChange();
+}
+
+function removeSelectedLink(context, linkType) {
+    const { paragraph, block, position } = context;
+    const ranges = linkType === "reference" ? block.references : block.links;
+    const selectedLink = ranges?.find((range) => linkType === "reference"
+        ? range.start >= position.start && range.start <= position.end
+        : range.start >= position.start && range.end <= position.end);
+    if (!selectedLink) return;
+    recordHistory(`Paragraph ${linkType} removed`);
+    let selectionEnd = position.end;
+    const removeStart = linkType === "reference" ? selectedLink.start : position.start;
+    const removeEnd = linkType === "reference" ? selectedLink.end : position.end;
+    if (linkType === "reference") {
+        paragraph.removeReference(removeStart, removeEnd);
+    } else {
+        paragraph.removeLink(removeStart, removeEnd);
     }
-    if (button.dataset.format === "link") {
-        const linkActive = block.links?.some((link) => link.start <= position.start && link.end >= position.end);
-        if (linkActive) {
-            recordHistory("Link removed");
-            block.links = removeRanges(block.links, position.start, position.end);
-            render();
-            const updatedParagraph = findParagraph(block.id);
-            selectOffsets(updatedParagraph, position.start, position.end);
-            queueSave();
-            handleSelectionChange();
-            return;
-        }
-        createLink(paragraph, position);
-        return;
-    }
-    const format = button.dataset.format;
+    render(block.id, selectionEnd);
+    const updatedParagraph = findParagraph(block.id);
+    selectOffsets(updatedParagraph, position.start, selectionEnd);
+    queueSave();
+    handleSelectionChange();
+}
+
+function applyTextFormat(format) {
+    restoreSavedSelection();
+    const context = getSelectionContext({ requireEditing: true });
+    if (!context) return;
+    const { paragraph, block, position } = context;
     const active = block.marks?.some((mark) => mark.style === format && mark.start <= position.start && mark.end >= position.end);
-    recordHistory(`Formatting: ${format}`);
-    const sameFormat = (block.marks ?? []).filter((mark) => mark.style === format);
-    const otherFormats = (block.marks ?? []).filter((mark) => mark.style !== format);
-    block.marks = [...otherFormats, ...removeRanges(sameFormat, position.start, position.end)];
-    if (!active) {
-        block.marks.push({ start: position.start, end: position.end, style: format });
-    }
+    recordHistory(`Formatting: ${format} ${active ? "removed" : "added"}`);
+    paragraph.toggleMark(format, position.start, position.end);
     render(block.id, position.end);
     const updatedParagraph = findParagraph(block.id);
     selectOffsets(updatedParagraph, position.start, position.end);
@@ -1408,37 +1508,45 @@ function handleToolbarClick(event) {
 }
 
 function applyCaseTransform(caseType) {
-    const selection = window.getSelection();
-    const anchorElement = selection?.anchorNode?.nodeType === Node.ELEMENT_NODE
-        ? selection.anchorNode
-        : selection?.anchorNode?.parentElement;
-    const paragraph = anchorElement?.closest(".paragraph");
-    const block = paragraph && findBlock(paragraph.dataset.blockId);
-    const position = paragraph && getSelectionPosition(paragraph);
+    const savedSelection = state.savedSelection;
+    let paragraph = savedSelection && findParagraph(savedSelection.blockId);
+    let block = savedSelection && findBlock(savedSelection.blockId);
+    let position = savedSelection && {
+        start: savedSelection.start,
+        end: savedSelection.end,
+    };
+    if (savedSelection && state.editingBlockId !== savedSelection.blockId) return;
+    if (!block || !position) {
+        const selection = window.getSelection();
+        const anchorElement = selection?.anchorNode?.nodeType === Node.ELEMENT_NODE
+            ? selection.anchorNode
+            : selection?.anchorNode?.parentElement;
+        paragraph = anchorElement?.closest(".paragraph");
+        block = paragraph && findBlock(paragraph.dataset.blockId);
+        if (paragraph && state.editingBlockId !== paragraph.dataset.blockId) return;
+        position = paragraph && getSelectionPosition(paragraph);
+    }
     if (!block || !position || position.start === position.end) {
         return;
     }
-
-    const selectedText = block.text.slice(position.start, position.end);
-    const transformedText = caseType === "upper"
-        ? selectedText.toUpperCase()
-        : caseType === "lower"
-            ? selectedText.toLowerCase()
-            : selectedText.toLowerCase().replace(/(^|[\s-])\p{L}/gu, (match) => match.toUpperCase());
-    recordHistory(`Text case: ${caseType}`);
-    block.text = block.text.slice(0, position.start) + transformedText + block.text.slice(position.end);
-    block.marks = remapRangesForTextChange(block.marks, position.start, position.end, transformedText.length);
-    block.links = remapRangesForTextChange(block.links, position.start, position.end, transformedText.length);
-    render(block.id, position.start + transformedText.length);
-    const updatedParagraph = findParagraph(block.id);
-    selectOffsets(updatedParagraph, position.start, position.start + transformedText.length);
-    queueSave();
-    const capsButton = selectionToolbar.querySelector("[data-format=\"caps\"]");
-    const menu = capsButton?.parentElement.querySelector(".caps-options");
-    if (capsButton && menu) {
-        capsButton.setAttribute("aria-expanded", "false");
-        menu.hidden = true;
+    if (isReferencedParagraph(block)) {
+        return;
     }
+
+    const transform = caseType === "upper"
+        ? (text) => text.toUpperCase()
+        : caseType === "lower"
+            ? (text) => text.toLowerCase()
+            : (text) => text.toLowerCase().replace(/(^|[\s-])\p{L}/gu, (match) => match.toUpperCase());
+    recordHistory(`Text case: ${caseType}`);
+    const result = paragraph.transformText(position.start, position.end, transform);
+    if (!result?.changed) {
+        return;
+    }
+    render(block.id, result.end);
+    const updatedParagraph = findParagraph(block.id);
+    selectOffsets(updatedParagraph, position.start, result.end);
+    queueSave();
     handleSelectionChange();
 }
 
@@ -1455,28 +1563,25 @@ function remapRangesForTextChange(ranges, start, end, replacementLength) {
     });
 }
 
-function removeRanges(ranges, start, end) {
-    const remaining = [];
-    for (const range of ranges) {
-        if (range.end <= start || range.start >= end) {
-            remaining.push(range);
-            continue;
-        }
-        if (range.start < start) {
-            remaining.push({ ...range, end: start });
-        }
-        if (range.end > end) {
-            remaining.push({ ...range, start: end });
-        }
-    }
-    return remaining;
-}
-
 function handleKeydown(event) {
     const paragraph = event.currentTarget;
     const block = findBlock(paragraph.dataset.blockId);
     const position = getSelectionPosition(paragraph);
     if (!block || !position) {
+        return;
+    }
+
+    if (isReferencedParagraph(block)
+        && !event.ctrlKey && !event.metaKey
+        && (event.key === "Enter" || event.key === "Backspace" || event.key === "Delete" || event.key.length === 1)) {
+        event.preventDefault();
+        return;
+    }
+
+    if (state.editingBlockId !== block.id && event.key !== "Enter" && event.key !== "Home" && event.key !== "End") {
+        if (event.key === "Backspace" || event.key === "Delete" || event.key.length === 1) {
+            event.preventDefault();
+        }
         return;
     }
 
@@ -1512,7 +1617,7 @@ function handleKeydown(event) {
 
 function splitParagraph(block, start, end, record = true) {
     const index = state.content.blocks.indexOf(block);
-    if (index < 0) {
+    if (index < 0 || block.type !== "paragraph" || isReferencedParagraph(block)) {
         return null;
     }
     if (record) {
@@ -1524,6 +1629,7 @@ function splitParagraph(block, start, end, record = true) {
     const afterStart = end + originalAfter.length - after.length;
     const [beforeMarks, afterMarks] = splitRanges(block.marks, before.length, afterStart);
     const [beforeLinks, afterLinks] = splitRanges(block.links, before.length, afterStart);
+    const [beforeReferences, afterReferences] = splitRanges(block.references, before.length, afterStart);
     const newBlock = {
         id: createBlockId(),
         type: "paragraph",
@@ -1531,11 +1637,13 @@ function splitParagraph(block, start, end, record = true) {
         ...(block.align ? { align: block.align } : {}),
         marks: afterMarks,
         links: afterLinks,
+        references: afterReferences,
     };
 
     block.text = before;
     block.marks = beforeMarks;
     block.links = beforeLinks;
+    block.references = beforeReferences;
     normalizeBlockWhitespace(block);
     normalizeBlockWhitespace(newBlock);
     state.content.blocks.splice(index + 1, 0, newBlock);
@@ -1556,6 +1664,20 @@ function backspace(block, start, end) {
         return;
     }
 
+    const linkAtCaret = (block.links ?? []).find((link) => link.start === start || link.end === start);
+    const referenceAtCaret = (block.references ?? []).find((reference) => reference.start === start || reference.end === start);
+    if (linkAtCaret || referenceAtCaret) {
+        recordHistory("Link remove");
+        if (referenceAtCaret) {
+            block.references = (block.references ?? []).filter((reference) => reference !== referenceAtCaret);
+        } else {
+            block.links = (block.links ?? []).filter((link) => link !== linkAtCaret);
+        }
+        render(block.id, start);
+        queueSave();
+        return;
+    }
+
     if (start > 0) {
         recordHistory("Text delete");
         block.text = block.text.slice(0, start - 1) + block.text.slice(start);
@@ -1571,11 +1693,16 @@ function backspace(block, start, end) {
     }
 
     const previous = state.content.blocks[index - 1];
+    if (block.type !== "paragraph" || previous.type !== "paragraph"
+        || isReferencedParagraph(block) || isReferencedParagraph(previous)) {
+        return;
+    }
     recordHistory("Paragraph merge above");
     const previousLength = previous.text.length;
     previous.text += ` ${block.text}`;
     previous.marks = mergeMetadataRanges(previous.marks, block.marks, previousLength + 1);
     previous.links = mergeMetadataRanges(previous.links, block.links, previousLength + 1);
+    previous.references = mergeMetadataRanges(previous.references, block.references, previousLength + 1);
     const cursorOffset = normalizeBlockWhitespace(previous, previousLength + 1);
     state.content.blocks.splice(index, 1);
     render(previous.id, cursorOffset);
@@ -1607,11 +1734,16 @@ function deleteForward(block, start, end) {
     }
 
     const next = state.content.blocks[index + 1];
+    if (block.type !== "paragraph" || next.type !== "paragraph"
+        || isReferencedParagraph(block) || isReferencedParagraph(next)) {
+        return;
+    }
     recordHistory("Paragraph merge below");
-    block.text += ` ${next.text}`;
-    block.marks = mergeMetadataRanges(block.marks, next.marks, start + 1);
-    block.links = mergeMetadataRanges(block.links, next.links, start + 1);
-    const cursorOffset = normalizeBlockWhitespace(block, start + 1);
+    block.text += next.text;
+    block.marks = mergeMetadataRanges(block.marks, next.marks, start);
+    block.links = mergeMetadataRanges(block.links, next.links, start);
+    block.references = mergeMetadataRanges(block.references, next.references, start);
+    const cursorOffset = normalizeBlockWhitespace(block, start);
     state.content.blocks.splice(index + 1, 1);
     render(block.id, cursorOffset);
     queueSave();
@@ -1698,19 +1830,24 @@ function focusAt(paragraph, offset) {
 }
 
 function selectOffsets(paragraph, start, end) {
+    const range = createRangeForOffsets(paragraph, start, end);
+    if (!range) return;
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+}
+
+function createRangeForOffsets(paragraph, start, end) {
     const startRange = document.createRange();
     startRange.selectNodeContents(paragraph);
     moveRangeToOffset(startRange, paragraph, start);
     const endRange = document.createRange();
     endRange.selectNodeContents(paragraph);
     moveRangeToOffset(endRange, paragraph, end);
-
     const range = document.createRange();
     range.setStart(startRange.startContainer, startRange.startOffset);
     range.setEnd(endRange.startContainer, endRange.startOffset);
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
+    return range;
 }
 
 function moveRangeToOffset(range, paragraph, offset) {
@@ -1744,44 +1881,48 @@ function createBlockId() {
     return `paragraph-${crypto.randomUUID()}`;
 }
 
-function createLink(paragraph, position = getSelectionPosition(paragraph)) {
+function createLink(paragraph, position = getSelectionPosition(paragraph), linkType = "link") {
     if (!position || position.start === position.end) {
         setSaveState("Select text first", "error");
         return;
     }
 
     state.pendingLink = { blockId: paragraph.dataset.blockId, position };
-    linkDialogInput.value = "";
-    linkDialogReference.checked = false;
-    linkDialogError.hidden = true;
-    linkDialog.hidden = false;
-    linkDialogInput.focus();
+    state.linkDialogMode = linkType === "reference" ? "reference" : "link";
+    const dialog = state.linkDialogMode === "reference" ? referenceDialog : linkDialog;
+    const input = state.linkDialogMode === "reference" ? referenceDialogInput : linkDialogInput;
+    const error = state.linkDialogMode === "reference" ? referenceDialogError : linkDialogError;
+    input.value = "";
+    error.hidden = true;
+    dialog.hidden = false;
+    input.focus();
 }
 
 function handleLinkDialogSubmit(event) {
     event.preventDefault();
-    const target = parseParagraphLink(linkDialogInput.value.trim());
+    const input = state.linkDialogMode === "reference" ? referenceDialogInput : linkDialogInput;
+    const error = state.linkDialogMode === "reference" ? referenceDialogError : linkDialogError;
+    const target = state.linkDialogMode === "reference"
+        ? parseReferenceLink(input.value.trim())
+        : parseExternalLink(input.value.trim());
     if (!target) {
-        linkDialogError.hidden = false;
-        linkDialogInput.focus();
+        error.hidden = false;
+        input.focus();
         return;
     }
 
-    const pendingLink = { ...state.pendingLink, asReference: linkDialogReference.checked };
+    const pendingLink = { ...state.pendingLink, linkType: state.linkDialogMode };
     closeLinkDialog();
     const paragraph = pendingLink && findParagraph(pendingLink.blockId);
     const block = paragraph && findBlock(pendingLink.blockId);
     const position = pendingLink?.position;
     if (!paragraph || !block || !position) return;
-    if (pendingLink.asReference) {
+    if (pendingLink.linkType === "reference") {
         addParagraphReference(block, position, target);
         return;
     }
     recordHistory("Paragraph link added");
-    block.links = [
-        ...(block.links ?? []),
-        { start: position.start, end: position.end, documentId: target.documentId, blockId: target.blockId },
-    ];
+    paragraph.addLink(position.start, position.end, target.url);
     render(block.id, position.end);
     const updatedParagraph = findParagraph(block.id);
     selectOffsets(updatedParagraph, position.start, position.end);
@@ -1790,19 +1931,10 @@ function handleLinkDialogSubmit(event) {
 }
 
 function addParagraphReference(block, position, target) {
-    const insertionPoint = position.end;
+    const paragraph = findParagraph(block.id);
     recordHistory("Paragraph reference added");
-    block.text = `${block.text.slice(0, insertionPoint)}*${block.text.slice(insertionPoint)}`;
-    block.marks = remapRangesForTextChange(block.marks ?? [], insertionPoint, insertionPoint, 1);
-    block.links = remapRangesForTextChange(block.links ?? [], insertionPoint, insertionPoint, 1);
-    block.links.push({
-        start: insertionPoint,
-        end: insertionPoint + 1,
-        documentId: target.documentId,
-        blockId: target.blockId,
-        reference: true,
-    });
-    render(block.id, insertionPoint);
+    paragraph.addReference(position.start, position.end, target.documentId, target.blockId);
+    render(block.id, position.end);
     const updatedParagraph = findParagraph(block.id);
     selectOffsets(updatedParagraph, position.start, position.end);
     queueSave();
@@ -1811,18 +1943,35 @@ function addParagraphReference(block, position, target) {
 
 function closeLinkDialog() {
     linkDialog.hidden = true;
+    referenceDialog.hidden = true;
     state.pendingLink = null;
     linkDialogError.hidden = true;
+    referenceDialogError.hidden = true;
 }
 
 function handleLinkDialogKeydown(event) {
-    if (event.key === "Escape" && !linkDialog.hidden) {
+    if (event.key === "Escape" && (!linkDialog.hidden || !referenceDialog.hidden)) {
         event.preventDefault();
         closeLinkDialog();
     }
 }
 
-function parseParagraphLink(value) {
+function parseExternalLink(value) {
+    try {
+        const normalizedValue = /^[a-z][a-z\d+.-]*:\/\//i.test(value)
+            ? value
+            : `https://${value}`;
+        const url = new URL(normalizedValue);
+        if (!/^https?:$/.test(url.protocol) || !url.hostname) {
+            return null;
+        }
+        return { url: url.href };
+    } catch (error) {
+        return null;
+    }
+}
+
+function parseReferenceLink(value) {
     try {
         const url = new URL(value, window.location.origin);
         if (url.origin !== window.location.origin) {
@@ -1905,10 +2054,10 @@ function queueSave() {
     setSaveState("Unsaved", "unsaved");
     state.saveQueued = true;
     clearTimeout(state.saveTimer);
-    state.saveTimer = setTimeout(() => {
-        state.saveQueued = false;
+    state.saveTimer = window.setTimeout(() => {
+        state.saveTimer = null;
         save();
-    }, 700);
+    }, safetySaveDelay);
 }
 
 function saveImmediately() {
@@ -1923,33 +2072,16 @@ function saveImmediately() {
 }
 
 function scheduleSafetySave() {
-    state.contentDirty = true;
-    normalizeContentMetadata(state.content);
-    updateDocumentLimitMeters();
-    setSaveState("Unsaved", "unsaved");
-    state.saveQueued = true;
-    clearTimeout(state.saveTimer);
-    state.saveTimer = setTimeout(() => {
-        state.saveTimer = null;
-        state.saveQueued = false;
-        save();
-    }, safetySaveDelay);
+    queueSave();
 }
 
 function handleDocumentVisibilityChange() {
-    if (document.visibilityState === "hidden") {
-        flushPendingSave();
-    }
+    if (document.visibilityState === "hidden") clearTimeout(state.saveTimer);
 }
 
 function flushPendingSave() {
-    if (!state.saveQueued || !state.content) {
-        return;
-    }
     clearTimeout(state.saveTimer);
     state.saveTimer = null;
-    state.saveQueued = false;
-    save();
 }
 
 function updateDocumentLimitMeters(payload = null) {
@@ -1988,30 +2120,19 @@ async function save() {
         return;
     }
 
+    state.saveQueued = false;
     state.saveInFlight = true;
     setSaveState("Saving", "saving");
     const contentToSave = cloneContent(state.content);
+    console.log("save start", contentToSave.blocks.map((block) => block.text));
     const revisionAtStart = state.revision;
     const blockSave = getBlockSavePayload(contentToSave, revisionAtStart);
     const payload = JSON.stringify(blockSave);
     updateDocumentLimitMeters(JSON.stringify({ content: contentToSave, revision: revisionAtStart }));
 
     try {
-        const response = await fetch(`/documents/${state.documentId}/blocks`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: payload,
-        });
-
-        if (response.status === 409) {
-            await recoverFromConflict();
-            return;
-        }
-        if (!response.ok) {
-            throw new Error(`Save failed: ${response.status}`);
-        }
-
-        const saved = await response.json();
+        const saved = await updateBlocks(state.documentId, JSON.parse(payload));
+        console.log("save response", saved.content.blocks.map((block) => block.text), state.content.blocks.map((block) => block.text), sameContent(state.content, contentToSave));
         state.syncedContent = cloneContent(saved.content);
         if (sameContent(state.content, contentToSave)) {
             state.content = saved.content;
@@ -2023,10 +2144,15 @@ async function save() {
             setSaveState("Saved", "saved");
         }
     } catch (error) {
+        if (error.status === 409) {
+            await recoverFromConflict();
+            return;
+        }
         console.error(error);
         setSaveState("Save failed", "error");
     } finally {
         state.saveInFlight = false;
+        fileSaveButton.disabled = state.saveInFlight || !state.contentDirty;
         revisionLabel.textContent = `Revision ${state.revision}`;
         updateHistoryButtons();
         if (state.saveQueued || !sameContent(state.content, contentToSave)) {
@@ -2081,8 +2207,13 @@ function recordHistory(operation = "Edit") {
         return;
     }
 
-    state.undoStack.push({ content: cloneContent(state.content), operation });
+    state.undoStack.push({
+        content: cloneContent(state.content),
+        operation: state.lastOperation,
+        timestamp: state.lastOperationAt,
+    });
     state.lastOperation = operation;
+    state.lastOperationAt = Date.now();
     if (state.undoStack.length > historyLimit) {
         state.undoStack.shift();
     }
@@ -2096,10 +2227,17 @@ function undo() {
     }
 
     const entry = state.undoStack.pop();
-    state.redoStack.push({ content: cloneContent(state.content), operation: `Undo: ${entry.operation}` });
+    state.redoStack.push({
+        content: cloneContent(state.content),
+        operation: state.lastOperation,
+        timestamp: state.lastOperationAt,
+    });
     state.content = entry.content;
-    state.lastOperation = `Undo: ${entry.operation}`;
+    state.lastOperation = entry.operation;
+    state.lastOperationAt = entry.timestamp;
     render();
+    restoreSavedSelection();
+    handleSelectionChange();
     updateHistoryButtons();
     queueSave();
 }
@@ -2110,10 +2248,17 @@ function redo() {
     }
 
     const entry = state.redoStack.pop();
-    state.undoStack.push({ content: cloneContent(state.content), operation: `Redo: ${entry.operation}` });
+    state.undoStack.push({
+        content: cloneContent(state.content),
+        operation: state.lastOperation,
+        timestamp: state.lastOperationAt,
+    });
     state.content = entry.content;
-    state.lastOperation = `Redo: ${entry.operation}`;
+    state.lastOperation = entry.operation;
+    state.lastOperationAt = entry.timestamp;
     render();
+    restoreSavedSelection();
+    handleSelectionChange();
     updateHistoryButtons();
     queueSave();
 }
@@ -2134,45 +2279,28 @@ function handleHistoryShortcut(event) {
 function updateHistoryButtons() {
     undoButton.disabled = state.undoStack.length === 0;
     redoButton.disabled = state.redoStack.length === 0;
-    renderHistoryPanel();
 }
 
-function renderHistoryPanel() {
-    if (!sidebarHistoryList || !state.content) return;
-    sidebarHistoryList.replaceChildren();
-    const entries = [
-        ...state.undoStack.map((entry) => ({ ...entry, kind: "undo" })),
-        { content: state.content, operation: state.lastOperation, kind: "current" },
-        ...[...state.redoStack].reverse().map((entry) => ({ ...entry, kind: "redo" })),
+function getHistoryEntries() {
+    return [
+        ...state.undoStack.map((entry, index) => ({
+            ...entry,
+            kind: "undo",
+            historyOrder: index,
+        })),
+        {
+            content: state.content,
+            operation: state.lastOperation,
+            timestamp: state.lastOperationAt,
+            kind: "current",
+            historyOrder: state.undoStack.length,
+        },
+        ...[...state.redoStack].reverse().map((entry, index) => ({
+            ...entry,
+            kind: "redo",
+            historyOrder: state.undoStack.length + index + 1,
+        })),
     ];
-
-    if (entries.length === 1) {
-        renderSidebarEmpty(sidebarHistoryList, "No changes yet");
-        return;
-    }
-
-    for (const [index, entry] of entries.entries()) {
-        const button = document.createElement("button");
-        button.className = "history-preview";
-        button.type = "button";
-        button.classList.toggle("is-current", entry.kind === "current");
-        button.setAttribute("aria-label", entry.kind === "current" ? "Current version" : `Restore version ${index + 1}`);
-        button.addEventListener("click", () => restoreHistorySnapshot(entry.content));
-
-        const header = document.createElement("span");
-        header.className = "history-preview-header";
-        const label = document.createElement("strong");
-        label.textContent = entry.operation ?? "Edit";
-        const stateLabel = document.createElement("small");
-        stateLabel.textContent = entry.kind === "undo" ? "Earlier" : entry.kind === "redo" ? "Later" : "Active";
-        header.append(label, stateLabel);
-
-        const preview = document.createElement("span");
-        preview.className = "history-preview-text";
-        preview.textContent = contentPreview(entry.content);
-        button.append(header, preview);
-        sidebarHistoryList.append(button);
-    }
 }
 
 function contentPreview(content) {
@@ -2184,13 +2312,26 @@ function contentPreview(content) {
     return text ? text.slice(0, 120) : "Empty document";
 }
 
-function restoreHistorySnapshot(target) {
-    if (sameContent(state.content, target)) return;
+function formatHistoryTime(timestamp) {
+    return new Date(timestamp || Date.now()).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+    });
+}
 
-    while (state.undoStack.length > 0 && !sameContent(state.content, target)) {
+function formatHistoryStatus(entry) {
+    const time = formatHistoryTime(entry.timestamp);
+    return entry.kind === "current" ? `${time} · Active` : time;
+}
+
+function restoreHistorySnapshot(target) {
+    if (!target || target.historyOrder === state.undoStack.length) return;
+
+    while (state.undoStack.length > target.historyOrder) {
         undo();
     }
-    while (state.redoStack.length > 0 && !sameContent(state.content, target)) {
+    while (state.undoStack.length < target.historyOrder && state.redoStack.length > 0) {
         redo();
     }
 }
@@ -2200,7 +2341,19 @@ function cloneContent(content) {
 }
 
 function sameContent(left, right) {
-    return JSON.stringify(left) === JSON.stringify(right);
+    return JSON.stringify(canonicalizeContent(left)) === JSON.stringify(canonicalizeContent(right));
+}
+
+function canonicalizeContent(content) {
+    const normalized = cloneContent(content);
+    for (const block of normalized.blocks ?? []) {
+        if (!block.align) delete block.align;
+        if (!block.marks?.length) delete block.marks;
+        if (!block.links?.length) delete block.links;
+        if (!block.references?.length) delete block.references;
+        if (!block.references?.length) delete block.references;
+    }
+    return normalized;
 }
 
 async function renameDocument() {
@@ -2212,16 +2365,7 @@ async function renameDocument() {
 
     setSaveState("Renaming", "saving");
     try {
-        const response = await fetch(`/documents/${state.documentId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title, revision: state.revision }),
-        });
-        if (!response.ok) {
-            throw new Error(`Rename failed: ${response.status}`);
-        }
-
-        const renamed = await response.json();
+        const renamed = await renameDocumentRequest(state.documentId, { title, revision: state.revision });
         state.title = renamed.title;
         state.slug = renamed.slug;
         state.revision = renamed.revision;
@@ -2240,6 +2384,8 @@ async function renameDocument() {
 function setSaveState(label, stateName) {
     saveState.textContent = label;
     saveState.dataset.state = stateName;
+    fileSaveButton.disabled = state.saveInFlight || !state.contentDirty;
+    fileSaveButton.classList.toggle("has-changes", state.contentDirty);
     if (state.content) {
         revisionLabel.textContent = `Revision ${state.revision}`;
     }

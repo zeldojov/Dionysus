@@ -5,64 +5,150 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Dionysus Editor</title>
-    <script>
-        if (localStorage.getItem("dionysus:sidebarShown") === "false") {
-            document.documentElement.classList.add("sidebar-hidden");
-        }
-    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0,0"
         rel="stylesheet">
-    <link rel="stylesheet" href="/static/editor.css">
+    <link rel="stylesheet" href="/static/css/editor.css">
+    <link rel="stylesheet" href="/static/css/d-paragraph.css">
 </head>
 
 <body>
-    <aside id="editor-sidebar" class="editor-sidebar" aria-label="Editor sidebar">
-        <div class="sidebar-header">
-            <span class="sidebar-brand">D</span>
-            <span class="sidebar-heading">Workspace</span>
-        </div>
-        <nav class="sidebar-tabs" aria-label="Sidebar sections">
-            <button class="sidebar-tab is-active" type="button" data-sidebar-tab="files" aria-selected="true">
-                <span class="material-symbols-outlined" aria-hidden="true">folder</span>
-                <span>Files</span>
-            </button>
-            <button class="sidebar-tab" type="button" data-sidebar-tab="history" aria-selected="false">
-                <span class="material-symbols-outlined" aria-hidden="true">history</span>
-                <span>History</span>
-            </button>
-        </nav>
-        <section id="sidebar-files" class="sidebar-panel" data-sidebar-panel="files" aria-label="Files">
-            <div class="sidebar-panel-heading">Documents</div>
-            <input id="sidebar-files-filter" class="sidebar-files-filter" type="search" aria-label="Filter documents"
-                placeholder="Filter documents">
-            <div id="sidebar-files-list" class="sidebar-list" role="list"></div>
-        </section>
-        <section id="sidebar-history" class="sidebar-panel" data-sidebar-panel="history" aria-label="History" hidden>
-            <div class="sidebar-panel-heading">Recent changes</div>
-            <div id="sidebar-history-list" class="sidebar-list" role="list"></div>
-        </section>
-        <div id="sidebar-resize-handle" class="sidebar-resize-handle" role="separator" aria-orientation="vertical"
-            aria-label="Resize sidebar" tabindex="0"></div>
-    </aside>
     <main class="workspace">
         <header class="topbar">
-            <div class="brand-mark" aria-hidden="true">D</div>
-            <div>
-                <p class="eyebrow">Dionysus</p>
-                <input id="document-title" class="document-title" type="text" value="Untitled document"
-                    aria-label="Document title">
+            <div class="topbar-main">
+                <div class="brand-mark" aria-hidden="true">D</div>
+                <div>
+                    <p class="eyebrow">Dionysus</p>
+                    <input id="document-title" class="document-title" type="text" value="Untitled document"
+                        aria-label="Document title">
+                </div>
+                <a class="documents-link" href="/" aria-label="Back to all documents">
+                    <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+                    Back
+                </a>
             </div>
-            <a class="documents-link" href="/" aria-label="Back to all documents">
-                <span class="material-symbols-outlined" aria-hidden="true">arrow_back</span>
-                Back
-            </a>
-            <div class="editor-actions" aria-label="History">
-                <button id="undo" class="history-button" type="button" aria-label="Undo" title="Undo"><span
-                        class="material-symbols-outlined" aria-hidden="true">undo</span></button>
-                <button id="redo" class="history-button" type="button" aria-label="Redo" title="Redo"><span
-                        class="material-symbols-outlined" aria-hidden="true">redo</span></button>
+            <div class="ribbon-toolbar" role="toolbar" aria-label="Editor commands">
+                <div class="ribbon-section">
+                    <span class="ribbon-group-label">File</span>
+                    <div class="ribbon-group ribbon-file-group" role="group" aria-label="File commands">
+                        <button id="file-new" class="ribbon-button" type="button" aria-label="File: new"
+                            title="File: new"><span class="material-symbols-outlined"
+                                aria-hidden="true">note_add</span></button>
+                        <button id="file-open" class="ribbon-button" type="button" aria-label="File: open"
+                            title="File: open"><span class="material-symbols-outlined"
+                                aria-hidden="true">folder_open</span></button>
+                        <button id="file-save" class="ribbon-button" type="button" aria-label="File: save"
+                            title="File: save"><span class="material-symbols-outlined"
+                                aria-hidden="true">save</span></button>
+                        <button id="file-save-as" class="ribbon-button" type="button" aria-label="File: save as"
+                            title="File: save as"><span class="material-symbols-outlined"
+                                aria-hidden="true">save_as</span></button>
+                    </div>
+                </div>
+                <div class="ribbon-section">
+                    <span class="ribbon-group-label">History</span>
+                    <div class="ribbon-group ribbon-history-group" role="group" aria-label="History commands">
+                        <button id="undo" class="ribbon-button" type="button" aria-label="Undo" title="Undo"><span
+                                class="material-symbols-outlined" aria-hidden="true">undo</span></button>
+                        <button id="redo" class="ribbon-button" type="button" aria-label="Redo" title="Redo"><span
+                                class="material-symbols-outlined" aria-hidden="true">redo</span></button>
+                        <button id="history-revisions" class="ribbon-button ribbon-history-button" type="button"
+                            aria-label="Revisions" title="Revisions"><span class="material-symbols-outlined"
+                                aria-hidden="true">history</span></button>
+                    </div>
+                </div>
+                <div class="ribbon-section">
+                    <span class="ribbon-group-label">Text</span>
+                    <div class="ribbon-group ribbon-text-group" role="group" aria-label="Text formatting">
+                        <button class="ribbon-button ribbon-format-button" type="button" data-format="bold" disabled
+                            aria-label="Bold" title="Bold"><span class="material-symbols-outlined"
+                                aria-hidden="true">format_bold</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-format="italic" disabled
+                            aria-label="Italic" title="Italic"><span class="material-symbols-outlined"
+                                aria-hidden="true">format_italic</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-format="underline"
+                            disabled aria-label="Underline" title="Underline"><span class="material-symbols-outlined"
+                                aria-hidden="true">format_underlined</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-format="strike" disabled
+                            aria-label="Strikethrough" title="Strikethrough"><span class="material-symbols-outlined"
+                                aria-hidden="true">strikethrough_s</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-format="subscript"
+                            disabled aria-label="Subscript" title="Subscript"><span class="material-symbols-outlined"
+                                aria-hidden="true">subscript</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-format="superscript"
+                            disabled aria-label="Superscript" title="Superscript"><span
+                                class="material-symbols-outlined" aria-hidden="true">superscript</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-format="highlight"
+                            disabled aria-label="Highlight" title="Highlight"><span class="material-symbols-outlined"
+                                aria-hidden="true">highlight</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-format="color" disabled
+                            aria-label="Color" title="Accent color"><span class="material-symbols-outlined"
+                                aria-hidden="true">format_color_text</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-caps="upper" disabled
+                            aria-label="Uppercase" title="Uppercase"><span class="material-symbols-outlined"
+                                aria-hidden="true">uppercase</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-caps="lower" disabled
+                            aria-label="Lowercase" title="Lowercase"><span class="material-symbols-outlined"
+                                aria-hidden="true">lowercase</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-caps="title" disabled
+                            aria-label="Title case" title="Title case"><span class="material-symbols-outlined"
+                                aria-hidden="true">title</span></button>
+                        <button class="ribbon-button ribbon-format-button" type="button" data-format="clear" disabled
+                            aria-label="Clear formatting" title="Clear formatting"><span
+                                class="material-symbols-outlined" aria-hidden="true">format_clear</span></button>
+                    </div>
+                </div>
+                <div class="ribbon-section">
+                    <span class="ribbon-group-label">Links</span>
+                    <div class="ribbon-group ribbon-link-group" role="group" aria-label="Link commands">
+                        <button class="ribbon-button ribbon-link-button" type="button" data-link-kind="link" disabled
+                            aria-label="Add link" title="Add link"><span class="material-symbols-outlined"
+                                aria-hidden="true">link</span></button>
+                        <button class="ribbon-button ribbon-link-button" type="button" data-link-kind="reference"
+                            disabled aria-label="Add ref" title="Add ref"><span class="material-symbols-outlined"
+                                aria-hidden="true">bookmark_add</span></button>
+                        <button id="copy-block-reference" class="ribbon-button ribbon-copy-button" type="button"
+                            disabled aria-label="Copy block reference" title="Copy block reference"><span
+                                class="material-symbols-outlined" aria-hidden="true">assignment</span></button>
+                        <button id="incoming-references" class="ribbon-button ribbon-copy-button" type="button" disabled
+                            aria-label="Show incoming references" title="Show incoming references"><span
+                                class="material-symbols-outlined" aria-hidden="true">format_quote</span></button>
+                    </div>
+                </div>
+                <div class="ribbon-section">
+                    <span class="ribbon-group-label">Align</span>
+                    <div class="ribbon-group ribbon-align-group" role="group" aria-label="Paragraph alignment">
+                        <button class="ribbon-button ribbon-align-button" type="button" data-alignment="left" disabled
+                            aria-label="Align left" title="Align left"><span class="material-symbols-outlined"
+                                aria-hidden="true">format_align_left</span></button>
+                        <button class="ribbon-button ribbon-align-button" type="button" data-alignment="right" disabled
+                            aria-label="Align right" title="Align right"><span class="material-symbols-outlined"
+                                aria-hidden="true">format_align_right</span></button>
+                        <button class="ribbon-button ribbon-align-button" type="button" data-alignment="center" disabled
+                            aria-label="Align center" title="Align center"><span class="material-symbols-outlined"
+                                aria-hidden="true">format_align_center</span></button>
+                        <button class="ribbon-button ribbon-align-button" type="button" data-alignment="justify"
+                            disabled aria-label="Align justify" title="Align justify"><span
+                                class="material-symbols-outlined"
+                                aria-hidden="true">format_align_justify</span></button>
+                    </div>
+                </div>
+                <div class="ribbon-section">
+                    <span class="ribbon-group-label">Paragraph</span>
+                    <div class="ribbon-group ribbon-paragraph-group" role="group" aria-label="Paragraph commands">
+                        <button id="split-paragraph" class="ribbon-button ribbon-paragraph-button" type="button"
+                            disabled aria-label="Split paragraph" title="Split paragraph"><span
+                                class="material-symbols-outlined" aria-hidden="true">height</span></button>
+                        <button class="ribbon-button ribbon-paragraph-button" type="button" data-merge-direction="above"
+                            disabled aria-label="Merge with above" title="Merge with above"><span
+                                class="material-symbols-outlined" aria-hidden="true">vertical_align_top</span></button>
+                        <button class="ribbon-button ribbon-paragraph-button" type="button" data-merge-direction="below"
+                            disabled aria-label="Merge with below" title="Merge with below"><span
+                                class="material-symbols-outlined"
+                                aria-hidden="true">vertical_align_bottom</span></button>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -74,10 +160,6 @@
             </div>
             <div class="editor" id="editor" spellcheck="false"></div>
             <div class="status-bar">
-                <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Collapse sidebar"
-                    title="Collapse sidebar" aria-expanded="true">
-                    <span class="material-symbols-outlined" aria-hidden="true">left_panel_close</span>
-                </button>
                 <div class="limit-meters" aria-label="Document limits">
                     <div class="limit-meter" data-limit-level="safe">
                         <span id="document-size-limit" class="limit-meter-label">Size 0 B / 1 MB · 0%</span>
@@ -88,85 +170,109 @@
                         <span class="limit-meter-track"><span class="limit-meter-fill"></span></span>
                     </div>
                 </div>
-                <div class="save-state" id="save-state" role="status">Loading</div>
+                <div class="status-bar-right">
+                    <span id="paragraph-metrics-status" class="paragraph-metrics paragraph-metrics-status" role="status"
+                        aria-live="polite"></span>
+                    <div class="save-state" id="save-state" role="status">Loading</div>
+                </div>
             </div>
         </section>
     </main>
-    <div id="selection-toolbar" class="selection-toolbar" role="toolbar" aria-label="Text formatting" hidden>
-        <button type="button" data-format="bold" aria-label="Bold" title="Bold"><span class="material-symbols-outlined"
-                aria-hidden="true">format_bold</span></button>
-        <button type="button" data-format="italic" aria-label="Italic" title="Italic"><span
-                class="material-symbols-outlined" aria-hidden="true">format_italic</span></button>
-        <button type="button" data-format="underline" aria-label="Underline" title="Underline"><span
-                class="material-symbols-outlined" aria-hidden="true">format_underlined</span></button>
-        <button type="button" data-format="strike" aria-label="Strikethrough" title="Strikethrough"><span
-                class="material-symbols-outlined" aria-hidden="true">strikethrough_s</span></button>
-        <button type="button" data-format="highlight" aria-label="Highlight" title="Highlight"><span
-                class="material-symbols-outlined" aria-hidden="true">highlight</span></button>
-        <button type="button" data-format="subscript" aria-label="Subscript" title="Subscript"><span
-                class="material-symbols-outlined" aria-hidden="true">subscript</span></button>
-        <button type="button" data-format="superscript" aria-label="Superscript" title="Superscript"><span
-                class="material-symbols-outlined" aria-hidden="true">superscript</span></button>
-        <button type="button" data-format="clear" aria-label="Clear formatting" title="Clear formatting">
-            <span class="material-symbols-outlined" aria-hidden="true">format_clear</span>
-        </button>
-        <span class="selection-toolbar-separator" role="separator" aria-orientation="vertical"></span>
-        <div class="caps-menu">
-            <button type="button" data-format="caps" aria-label="Change case" aria-haspopup="true" aria-expanded="false"
-                title="Change case">
-                <span class="material-symbols-outlined" aria-hidden="true">match_case</span>
-            </button>
-            <div class="caps-options" role="menu" hidden>
-                <button type="button" data-caps="upper" role="menuitem" aria-label="Uppercase" title="ALL CAPS">
-                    <span class="material-symbols-outlined" aria-hidden="true">uppercase</span>
-                </button>
-                <button type="button" data-caps="lower" role="menuitem" aria-label="Lowercase" title="all lower">
-                    <span class="material-symbols-outlined" aria-hidden="true">lowercase</span>
-                </button>
-                <button type="button" data-caps="title" role="menuitem" aria-label="Title case" title="Title Case">
-                    <span class="material-symbols-outlined" aria-hidden="true">title</span>
-                </button>
-            </div>
-        </div>
-        <span class="selection-toolbar-separator" role="separator" aria-orientation="vertical"></span>
-        <button type="button" data-format="link" aria-label="Link" title="Link">
-            <span class="material-symbols-outlined" aria-hidden="true">link</span>
-        </button>
-    </div>
     <div id="link-dialog" class="link-dialog" role="dialog" aria-modal="true" aria-labelledby="link-dialog-title"
         hidden>
-        <form id="link-dialog-form" class="link-dialog-panel">
+        <form id="link-dialog-form" class="link-dialog-panel" data-link-kind="link">
             <div class="link-dialog-header">
                 <div>
-                    <p class="eyebrow">Paragraph link</p>
-                    <h2 id="link-dialog-title">Link selected text</h2>
+                    <p class="eyebrow">External link</p>
+                    <h2 id="link-dialog-title">Add external link</h2>
                 </div>
                 <button id="link-dialog-close" class="link-dialog-close" type="button" aria-label="Close dialog"
                     title="Close dialog"><span class="material-symbols-outlined"
                         aria-hidden="true">close</span></button>
             </div>
-            <label class="link-dialog-label" for="link-dialog-input">Paragraph URL</label>
+            <label id="link-dialog-label" class="link-dialog-label" for="link-dialog-input">External URL</label>
             <input id="link-dialog-input" class="link-dialog-input" type="text" inputmode="url"
-                placeholder="/documents/slug#block-id" autocomplete="off" required>
-            <label class="link-dialog-reference">
-                <input id="link-dialog-reference" type="checkbox">
-                <span>Add as reference</span>
-            </label>
-            <p id="link-dialog-error" class="link-dialog-error" role="alert" hidden>Enter a valid Dionysus paragraph
-                link.</p>
+                placeholder="https://example.com/resource" autocomplete="off" required>
+            <p id="link-dialog-error" class="link-dialog-error" role="alert" hidden>Enter a valid HTTP or HTTPS URL.</p>
             <div class="link-dialog-actions">
                 <button id="link-dialog-cancel" class="link-dialog-button link-dialog-button-secondary"
                     type="button">Cancel</button>
-                <button class="link-dialog-button link-dialog-button-primary" type="submit">Insert link</button>
+                <button id="link-dialog-submit" class="link-dialog-button link-dialog-button-primary"
+                    type="submit">Insert link</button>
+            </div>
+        </form>
+    </div>
+    <div id="reference-dialog" class="link-dialog" role="dialog" aria-modal="true"
+        aria-labelledby="reference-dialog-title" hidden>
+        <form id="reference-dialog-form" class="link-dialog-panel" data-link-kind="reference">
+            <div class="link-dialog-header">
+                <div>
+                    <p class="eyebrow">Block reference</p>
+                    <h2 id="reference-dialog-title">Add block reference</h2>
+                </div>
+                <button id="reference-dialog-close" class="link-dialog-close" type="button" aria-label="Close dialog"
+                    title="Close dialog"><span class="material-symbols-outlined"
+                        aria-hidden="true">close</span></button>
+            </div>
+            <label id="reference-dialog-label" class="link-dialog-label" for="reference-dialog-input">Reference
+                URL</label>
+            <input id="reference-dialog-input" class="link-dialog-input" type="text" inputmode="url"
+                placeholder="/documents/{id}#block-{blockId}" autocomplete="off" required>
+            <p id="reference-dialog-error" class="link-dialog-error" role="alert" hidden>
+                Enter a valid Dionysus block reference.
+            </p>
+            <div class="link-dialog-actions">
+                <button id="reference-dialog-cancel" class="link-dialog-button link-dialog-button-secondary"
+                    type="button">Cancel</button>
+                <button id="reference-dialog-submit" class="link-dialog-button link-dialog-button-primary"
+                    type="submit">Insert reference</button>
             </div>
         </form>
     </div>
     <div id="reference-preview" class="reference-preview" role="tooltip" hidden>
-        <span class="reference-preview-label">Referenced paragraph</span>
+        <div class="reference-preview-heading">
+            <span class="reference-preview-label">Referenced paragraph</span>
+            <a id="reference-preview-link" class="reference-preview-link" href="#"
+                aria-label="Open referenced paragraph">&#8599;</a>
+        </div>
         <span id="reference-preview-text" class="reference-preview-text"></span>
     </div>
-    <script src="/static/editor-transforms.js" defer></script>
-    <script src="/static/editor.js" defer></script>
+    <div id="incoming-references-modal" class="link-dialog" role="dialog" aria-modal="true"
+        aria-labelledby="incoming-references-title" hidden>
+        <div class="link-dialog-panel incoming-references-panel">
+            <div class="link-dialog-header">
+                <div>
+                    <p class="eyebrow">Incoming references</p>
+                    <h2 id="incoming-references-title">References to paragraph</h2>
+                </div>
+                <button id="incoming-references-close" class="link-dialog-close" type="button" aria-label="Close dialog"
+                    title="Close dialog"><span class="material-symbols-outlined"
+                        aria-hidden="true">close</span></button>
+            </div>
+            <div id="incoming-references-list" class="incoming-references-list"></div>
+        </div>
+    </div>
+    <div id="revision-modal" class="revision-modal" role="dialog" aria-modal="true"
+        aria-labelledby="revision-modal-title" hidden>
+        <div class="revision-modal-panel">
+            <div class="revision-modal-header">
+                <div>
+                    <p class="eyebrow">Document history</p>
+                    <h2 id="revision-modal-title">Revisions</h2>
+                </div>
+                <button id="revision-modal-close" class="link-dialog-close" type="button" aria-label="Close revisions"
+                    title="Close revisions"><span class="material-symbols-outlined"
+                        aria-hidden="true">close</span></button>
+            </div>
+            <div id="revision-list" class="revision-list" role="listbox" aria-label="Document revisions"></div>
+        </div>
+    </div>
+    <script src="/static/js/editor-transforms.js" defer></script>
+    <script src="/static/js/editor-api.js" defer></script>
+    <script src="/static/js/d-paragraph.js" defer></script>
+    <script src="/static/js/d-link.js" defer></script>
+    <script src="/static/js/d-reference.js" defer></script>
+    <script src="/static/js/editor.js" defer></script>
 </body>
 
 </html>

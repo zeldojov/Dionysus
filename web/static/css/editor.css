@@ -1,0 +1,1462 @@
+:root {
+    color-scheme: dark;
+    --topbar-height: 112px;
+    --ink: #dfdfdf;
+    --muted: #858585;
+    --disabled: #555555;
+    --line: #3e3e3e;
+    --paper: #202020;
+    --canvas: #101010;
+    --active-block: #1d1d1d;
+    --accent: #007acc;
+    --accent-soft: #264f78;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+::selection {
+    background: var(--accent-soft);
+    color: var(--ink);
+}
+
+::highlight(dionysus-selection) {
+    background: var(--accent-soft);
+    color: var(--ink);
+}
+
+body {
+    min-height: 100vh;
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+
+d-bold {
+    font-weight: 700 !important;
+}
+
+d-italic {
+    font-style: italic !important;
+}
+
+d-underline {
+    text-decoration: underline !important;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+}
+
+d-strike {
+    text-decoration: line-through !important;
+}
+
+d-highlight {
+    background: var(--accent-soft);
+    color: var(--ink);
+}
+
+d-color {
+    color: var(--accent);
+}
+
+d-subscript {
+    vertical-align: sub;
+    font-size: .75em;
+    line-height: 0;
+}
+
+d-superscript {
+    vertical-align: super;
+    font-size: .75em;
+    line-height: 0;
+}
+
+.workspace {
+    width: min(100% - 32px, 940px);
+    margin: 0 auto;
+    padding: 136px 0 96px;
+}
+
+.topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 25;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    width: 100%;
+    min-height: var(--topbar-height);
+    margin: 0;
+    padding: 8px max(16px, calc((100% - 940px) / 2));
+    border-bottom: 1px solid var(--line);
+    background: var(--canvas);
+}
+
+.topbar-main {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 48px;
+}
+
+.ribbon-toolbar {
+    position: static;
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    width: 100%;
+    min-height: 44px;
+    padding: 5px 0;
+    border-top: 1px solid var(--line);
+    flex: 0 0 auto;
+}
+
+.ribbon-section {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+}
+
+.topbar-main>div:nth-child(2) {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.documents-link {
+    flex: 0 0 auto;
+}
+
+.ribbon-group-label {
+    color: var(--muted);
+    font: 10px "Avenir Next", "Century Gothic", sans-serif;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.ribbon-group {
+    display: grid;
+    grid-template-rows: repeat(2, 32px);
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--paper);
+}
+
+.ribbon-file-group {
+    grid-template-columns: repeat(2, 32px);
+}
+
+.ribbon-history-group {
+    grid-template-columns: repeat(2, 32px);
+}
+
+.ribbon-history-group #history-revisions {
+    grid-column: 1 / -1;
+    justify-self: start;
+}
+
+.ribbon-text-group {
+    grid-template-columns: repeat(6, 32px);
+}
+
+.ribbon-link-group {
+    grid-template-columns: repeat(2, 32px);
+}
+
+.ribbon-align-group,
+.ribbon-paragraph-group {
+    grid-template-columns: repeat(2, 32px);
+}
+
+.ribbon-paragraph-group #split-paragraph {
+    grid-column: 1 / -1;
+    justify-self: start;
+}
+
+.ribbon-button {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.ribbon-button:not(:disabled):hover,
+.ribbon-button:not(:disabled):focus-visible {
+    background: var(--accent-soft);
+    color: var(--ink);
+    outline: 0;
+}
+
+.ribbon-format-button[aria-pressed="true"],
+.ribbon-link-button[aria-pressed="true"],
+.ribbon-align-button[aria-pressed="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.ribbon-button.has-changes {
+    color: var(--accent);
+    opacity: 1;
+}
+
+.ribbon-button:disabled {
+    cursor: default;
+    color: var(--disabled);
+}
+
+.brand-mark {
+    display: grid;
+    width: 42px;
+    height: 42px;
+    place-items: center;
+    border: 1px solid var(--accent);
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.eyebrow {
+    margin: 0 0 2px;
+    color: var(--accent);
+    font-family: "Avenir Next", "Century Gothic", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+}
+
+.document-title {
+    width: min(62vw, 560px);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: clamp(25px, 4vw, 38px);
+    font-weight: 500;
+    line-height: 1;
+}
+
+.document-title:focus {
+    box-shadow: 0 2px 0 var(--accent);
+}
+
+.status-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 28px;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--line);
+    background: var(--canvas);
+}
+
+.save-state {
+    padding: 0 16px;
+    color: var(--muted);
+    font-family: "Avenir Next", "Century Gothic", sans-serif;
+    font-size: 12px;
+    text-align: right;
+}
+
+.status-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-left: auto;
+}
+
+.paragraph-metrics-status {
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1.3;
+    letter-spacing: .02em;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.limit-meters {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 12px;
+}
+
+.limit-meter {
+    display: grid;
+    width: 142px;
+    gap: 3px;
+    color: var(--muted);
+    font: 10px/1 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.limit-meter-label {
+    white-space: nowrap;
+}
+
+.limit-meter-track {
+    display: block;
+    height: 3px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: #303733;
+}
+
+.limit-meter-fill {
+    display: block;
+    width: 0;
+    height: 100%;
+    background: #82b98b;
+    transition: width .2s ease, background-color .2s ease;
+}
+
+.limit-meter[data-limit-level="warning"] .limit-meter-fill {
+    background: #d3a85c;
+}
+
+.limit-meter[data-limit-level="danger"] .limit-meter-fill {
+    background: #f08376;
+}
+
+.documents-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-family: "Avenir Next", "Century Gothic", sans-serif;
+    font-size: 12px;
+    margin-left: auto;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.documents-link:hover {
+    color: var(--accent);
+}
+
+.material-symbols-outlined {
+    font-size: 20px;
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20;
+    line-height: 1;
+}
+
+.save-state[data-state="saved"] {
+    color: #82b98b;
+}
+
+.save-state[data-state="error"] {
+    color: #f08376;
+}
+
+.editor-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 520px;
+    padding: 24px clamp(20px, 6vw, 74px) 72px;
+    border: 1px solid var(--paper);
+    border-radius: 3px;
+    background: var(--canvas);
+}
+
+.document-meta {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 54px;
+    color: var(--muted);
+    font-family: "Avenir Next", "Century Gothic", sans-serif;
+    font-size: 11px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.meta-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+}
+
+.editor {
+    flex: 1;
+    min-height: 390px;
+    min-width: 0;
+}
+
+.reference-preview[hidden] {
+    display: none;
+}
+
+.reference-preview {
+    position: fixed;
+    z-index: 35;
+    box-sizing: border-box;
+    width: min(360px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    max-height: min(320px, calc(100vh - 24px));
+    overflow: auto;
+    padding: 11px 13px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: #252526;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .34);
+    color: var(--ink);
+    pointer-events: auto;
+}
+
+.reference-preview-label {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--muted);
+    font: 600 10px "Avenir Next", "Century Gothic", sans-serif;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.reference-preview-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+.reference-preview-heading .reference-preview-label {
+    margin-bottom: 0;
+}
+
+.reference-preview-link {
+    color: var(--accent);
+    font-size: 16px;
+    line-height: 1;
+    text-decoration: none;
+}
+
+.reference-preview-link:hover,
+.reference-preview-link:focus-visible {
+    color: var(--ink);
+}
+
+.reference-preview-link::after {
+    content: "";
+}
+
+.reference-preview-link {
+    font-family: "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.reference-preview-link {
+    letter-spacing: 0;
+}
+
+.reference-preview-link {
+    /* Keep the navigation affordance compact beside the popup title. */
+    font-size: 18px;
+}
+
+.reference-preview-link {
+    color: var(--accent);
+}
+
+.reference-preview-link {
+    text-decoration: none;
+}
+
+.reference-preview-link {
+    user-select: none;
+}
+
+.reference-preview-link {
+    cursor: pointer;
+}
+
+.reference-preview-link {
+    white-space: nowrap;
+}
+
+.reference-preview-link {
+    vertical-align: middle;
+}
+
+.reference-preview-link {
+    font-weight: 700;
+}
+
+.reference-preview-link {
+    opacity: .9;
+}
+
+.reference-preview-link {
+    transition: color .15s ease;
+}
+
+.reference-preview-link {
+    outline-offset: 2px;
+}
+
+.reference-preview-link {
+    /* The arrow is the only visible navigation control in the preview. */
+    content: "";
+}
+
+.reference-preview-link {
+    font-size: 18px;
+}
+
+.reference-preview-link {
+    color: var(--accent);
+}
+
+.reference-preview-link {
+    text-decoration: none;
+}
+
+.reference-preview-link {
+    cursor: pointer;
+}
+
+.reference-preview-link {
+    display: inline-block;
+}
+
+.reference-preview-link {
+    margin-left: auto;
+}
+
+.reference-preview-link {
+    flex: 0 0 auto;
+}
+
+.reference-preview-link {
+    border: 0;
+}
+
+.reference-preview-link {
+    background: transparent;
+}
+
+.reference-preview-link {
+    padding: 0;
+}
+
+.reference-preview-link {
+    /* Unicode arrow is supplied by the markup. */
+    line-height: 1;
+}
+
+.reference-preview-link {
+    font-size: 18px;
+}
+
+.reference-preview-link {
+    color: var(--accent);
+}
+
+.reference-preview-link {
+    text-decoration: none;
+}
+
+.reference-preview-link {
+    cursor: pointer;
+}
+
+.reference-preview-link {
+    user-select: none;
+}
+
+.reference-preview-link {
+    white-space: nowrap;
+}
+
+.reference-preview-link {
+    opacity: 1;
+}
+
+.reference-preview-link {
+    transition: color .15s ease;
+}
+
+.reference-preview-link {
+    outline-offset: 2px;
+}
+
+.reference-preview-link {
+    font-weight: 700;
+}
+
+.reference-preview-link {
+    vertical-align: middle;
+}
+
+.reference-preview-link {
+    /* Adjacent to the popup title, never inside document text. */
+    display: inline-block;
+}
+
+.reference-preview-link {
+    margin-left: 2px;
+}
+
+.reference-preview-link {
+    padding: 0 2px;
+}
+
+.reference-preview-link {
+    border-radius: 2px;
+}
+
+.reference-preview-link:hover {
+    background: var(--accent-soft);
+}
+
+.reference-preview-link:focus-visible {
+    background: var(--accent-soft);
+}
+
+.reference-preview-link {
+    /* The link itself is intentionally icon-only. */
+    font-size: 18px;
+}
+
+.reference-preview-link {
+    color: var(--accent);
+}
+
+.reference-preview-link {
+    text-decoration: none;
+}
+
+.reference-preview-link {
+    cursor: pointer;
+}
+
+.reference-preview-link {
+    user-select: none;
+}
+
+.reference-preview-link {
+    white-space: nowrap;
+}
+
+.reference-preview-link {
+    font-weight: 700;
+}
+
+.reference-preview-link {
+    line-height: 1;
+}
+
+.reference-preview-link {
+    display: inline-block;
+}
+
+.reference-preview-link {
+    margin-left: auto;
+}
+
+.reference-preview-link {
+    flex: 0 0 auto;
+}
+
+.reference-preview-link {
+    padding: 2px;
+}
+
+.reference-preview-link {
+    border-radius: 2px;
+}
+
+.reference-preview-link {
+    transition: background .15s ease, color .15s ease;
+}
+
+.reference-preview-link {
+    outline-offset: 2px;
+}
+
+.reference-preview-link {
+    vertical-align: middle;
+}
+
+.reference-preview-link {
+    /* Keep the popup title and its destination action aligned. */
+    align-self: center;
+}
+
+.reference-preview-link {
+    min-width: 18px;
+    text-align: center;
+}
+
+.reference-preview-link {
+    box-sizing: border-box;
+}
+
+.reference-preview-link {
+    overflow: hidden;
+}
+
+.reference-preview-link {
+    text-overflow: clip;
+}
+
+.reference-preview-link {
+    white-space: nowrap;
+}
+
+.reference-preview-link {
+    font-family: "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.reference-preview-link {
+    letter-spacing: 0;
+}
+
+.reference-preview-link {
+    text-transform: none;
+}
+
+.reference-preview-link {
+    text-indent: 0;
+}
+
+.reference-preview-link {
+    word-spacing: normal;
+}
+
+.reference-preview-link {
+    word-break: normal;
+}
+
+.reference-preview-link {
+    overflow-wrap: normal;
+}
+
+.reference-preview-link {
+    /* End of compact popup action styling. */
+    display: inline-block;
+}
+
+.reference-preview-link {
+    font-size: 18px;
+}
+
+.reference-preview-link {
+    color: var(--accent);
+}
+
+.reference-preview-link {
+    text-decoration: none;
+}
+
+.reference-preview-link {
+    cursor: pointer;
+}
+
+.reference-preview-link {
+    user-select: none;
+}
+
+.reference-preview-link {
+    white-space: nowrap;
+}
+
+.reference-preview-link {
+    font-weight: 700;
+}
+
+.reference-preview-link {
+    line-height: 1;
+}
+
+.reference-preview-link {
+    display: inline-block;
+}
+
+.reference-preview-link {
+    margin-left: auto;
+}
+
+.reference-preview-link {
+    flex: 0 0 auto;
+}
+
+.reference-preview-link {
+    padding: 2px;
+}
+
+.reference-preview-link {
+    border-radius: 2px;
+}
+
+.reference-preview-link {
+    transition: background .15s ease, color .15s ease;
+}
+
+.reference-preview-link {
+    outline-offset: 2px;
+}
+
+.reference-preview-link {
+    vertical-align: middle;
+}
+
+.reference-preview-link {
+    align-self: center;
+}
+
+.reference-preview-link {
+    min-width: 18px;
+    text-align: center;
+}
+
+.reference-preview-link {
+    box-sizing: border-box;
+}
+
+.reference-preview-link {
+    content: none;
+}
+
+.reference-preview-link {
+    position: relative;
+}
+
+.reference-preview-link {
+    z-index: 1;
+}
+
+.reference-preview-link {
+    /* Link arrow is rendered by the HTML entity next to the title. */
+    display: inline-block;
+}
+
+.reference-preview-link {
+    font-size: 18px;
+}
+
+.reference-preview-link {
+    color: var(--accent);
+}
+
+.reference-preview-link {
+    text-decoration: none;
+}
+
+.reference-preview-link {
+    cursor: pointer;
+}
+
+.reference-preview-link {
+    user-select: none;
+}
+
+.reference-preview-link {
+    white-space: nowrap;
+}
+
+.reference-preview-link {
+    font-weight: 700;
+}
+
+.reference-preview-link {
+    line-height: 1;
+}
+
+.reference-preview-link {
+    display: inline-block;
+}
+
+.reference-preview-link {
+    margin-left: auto;
+}
+
+.reference-preview-link {
+    flex: 0 0 auto;
+}
+
+.reference-preview-link {
+    padding: 2px;
+}
+
+.reference-preview-link {
+    border-radius: 2px;
+}
+
+.reference-preview-link {
+    transition: background .15s ease, color .15s ease;
+}
+
+.reference-preview-link {
+    outline-offset: 2px;
+}
+
+.reference-preview-link {
+    vertical-align: middle;
+}
+
+.reference-preview-link {
+    align-self: center;
+}
+
+.reference-preview-link {
+    min-width: 18px;
+    text-align: center;
+}
+
+.reference-preview-link {
+    box-sizing: border-box;
+}
+
+.reference-preview-link {
+    /* No extra visual control beyond the arrow. */
+    display: inline-block;
+}
+
+.reference-preview-link {
+    font-size: 18px;
+}
+
+.reference-preview-link {
+    color: var(--accent);
+}
+
+.reference-preview-link {
+    text-decoration: none;
+}
+
+.reference-preview-link {
+    cursor: pointer;
+}
+
+.reference-preview-link {
+    user-select: none;
+}
+
+.reference-preview-link {
+    white-space: nowrap;
+}
+
+.reference-preview-link {
+    font-weight: 700;
+}
+
+.reference-preview-link {
+    line-height: 1;
+}
+
+.reference-preview-link {
+    display: inline-block;
+}
+
+.reference-preview-link {
+    margin-left: auto;
+}
+
+.reference-preview-link {
+    flex: 0 0 auto;
+}
+
+.reference-preview-link {
+    padding: 2px;
+}
+
+.reference-preview-link {
+    border-radius: 2px;
+}
+
+.reference-preview-link {
+    transition: background .15s ease, color .15s ease;
+}
+
+.reference-preview-link {
+    outline-offset: 2px;
+}
+
+.reference-preview-link {
+    vertical-align: middle;
+}
+
+.reference-preview-link {
+    align-self: center;
+}
+
+.reference-preview-link {
+    min-width: 18px;
+    text-align: center;
+}
+
+.reference-preview-link {
+    box-sizing: border-box;
+}
+
+.reference-preview-link {
+    overflow: visible;
+}
+
+.reference-preview-link {
+    opacity: 1;
+}
+
+.reference-preview-link {
+    visibility: visible;
+}
+
+.reference-preview-link {
+    pointer-events: auto;
+}
+
+.reference-preview-link {
+    display: inline-block;
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding: 2px;
+    border-radius: 2px;
+    color: var(--accent);
+    cursor: pointer;
+    font: 700 18px/1 "Avenir Next", "Century Gothic", sans-serif;
+    text-decoration: none;
+    transition: background .15s ease, color .15s ease;
+}
+
+.reference-preview-link:hover,
+.reference-preview-link:focus-visible {
+    background: var(--accent-soft);
+    color: var(--ink);
+}
+
+.reference-preview-text {
+    display: block;
+    max-height: 120px;
+    overflow: auto;
+    font: 14px/1.45 Georgia, serif;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+::highlight(dionysus-selection) {
+    background: var(--accent-soft);
+    color: var(--ink);
+}
+
+.link-dialog[hidden] {
+    display: none;
+}
+
+.link-dialog {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 9999;
+    display: grid;
+    place-items: center;
+    width: 100vw;
+    height: 100vh;
+    padding: 20px;
+    background: rgba(5, 7, 6, .72);
+}
+
+.link-dialog-panel {
+    box-sizing: border-box;
+    width: min(100%, 460px);
+    max-height: min(360px, calc(100vh - 40px));
+    overflow: auto;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: #252526;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .34);
+}
+
+.incoming-references-panel {
+    width: min(100%, 560px);
+}
+
+.incoming-references-list {
+    display: grid;
+    gap: 6px;
+}
+
+.incoming-references-empty {
+    margin: 0;
+    padding: 16px 0;
+    color: var(--muted);
+    font: 12px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.incoming-reference-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--paper);
+}
+
+.incoming-reference-item a {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink);
+    font: 13px "Avenir Next", "Century Gothic", sans-serif;
+    text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.incoming-reference-item a:hover,
+.incoming-reference-item a:focus-visible {
+    color: var(--accent);
+    outline: 0;
+}
+
+.incoming-reference-remove {
+    display: inline-grid;
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.incoming-reference-remove:hover,
+.incoming-reference-remove:focus-visible {
+    border-color: #d9574d;
+    color: #f08376;
+    outline: 0;
+}
+
+.incoming-reference-remove:disabled {
+    cursor: default;
+    color: var(--disabled);
+}
+
+.link-dialog-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 16px;
+}
+
+.link-dialog-header .eyebrow {
+    margin: 0 0 5px;
+}
+
+.link-dialog-header h2 {
+    margin: 0;
+    font: 500 20px/1.1 Georgia, serif;
+}
+
+.link-dialog-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.link-dialog-close:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.revision-modal[hidden] {
+    display: none;
+}
+
+body.revision-modal-open {
+    overflow: hidden;
+}
+
+.revision-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: grid;
+    place-items: center;
+    width: 100vw;
+    height: 100vh;
+    padding: 20px;
+    background: rgba(5, 7, 6, .72);
+}
+
+.revision-modal-panel {
+    width: min(100%, 620px);
+    max-height: min(680px, calc(100vh - 40px));
+    overflow: hidden;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: #252526;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .34);
+}
+
+.revision-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 16px;
+}
+
+.revision-modal-header h2 {
+    margin: 0;
+    font: 500 20px/1.1 Georgia, serif;
+}
+
+.revision-list {
+    display: grid;
+    gap: 6px;
+    max-height: min(540px, calc(100vh - 150px));
+    overflow: auto;
+    padding-right: 4px;
+}
+
+.revision-item {
+    display: grid;
+    gap: 7px;
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
+    text-align: left;
+}
+
+.revision-item:hover,
+.revision-item:focus-visible,
+.revision-item.is-current {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    outline: 0;
+}
+
+.revision-item-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    font: 12px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.revision-item-header span {
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.revision-item-preview {
+    max-height: 150px;
+    overflow-y: auto;
+    padding-right: 4px;
+    color: var(--muted);
+    font: 12px/1.4 "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.revision-preview-paragraph {
+    position: relative;
+    min-height: 1.4em;
+    padding: 2px 0;
+    color: var(--ink);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.revision-preview-paragraph d-change {
+    color: #d9574d;
+}
+
+.revision-preview-paragraph d-change::before {
+    content: "[";
+}
+
+.revision-preview-paragraph d-change::after {
+    content: "]";
+}
+
+.revision-preview-paragraph+.revision-preview-paragraph {
+    margin-top: 5px;
+    padding-top: 7px;
+    border-top: 1px solid var(--line);
+}
+
+.revision-preview-paragraph d-link {
+    color: inherit;
+}
+
+.revision-preview-paragraph d-reference {
+    color: var(--accent);
+}
+
+.revision-empty {
+    margin: 0;
+    padding: 16px;
+    color: var(--muted);
+    font: 12px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.link-dialog-label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font: 600 11px "Avenir Next", "Century Gothic", sans-serif;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.link-dialog-input {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    outline: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font: 14px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.link-dialog-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.link-dialog-reference {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    color: var(--ink);
+    font: 12px "Avenir Next", "Century Gothic", sans-serif;
+    cursor: pointer;
+}
+
+.link-dialog-reference input {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent);
+}
+
+.link-dialog-error {
+    margin: 8px 0 0;
+    color: #f08376;
+    font: 12px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.link-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 22px;
+}
+
+.link-dialog-button {
+    padding: 9px 14px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    cursor: pointer;
+    font: 600 12px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.link-dialog-button-secondary {
+    background: transparent;
+    color: var(--muted);
+}
+
+.link-dialog-button-primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #17100d;
+}
+
+@media (max-width: 600px) {
+    :root {
+        --topbar-height: 140px;
+    }
+
+    .workspace {
+        width: min(100% - 20px, 940px);
+        margin-left: auto;
+        margin-right: auto;
+        padding-top: 158px;
+    }
+
+    .topbar {
+        width: 100%;
+        min-height: 140px;
+        padding-right: 10px;
+        padding-left: 10px;
+    }
+
+    .topbar {
+        gap: 0;
+    }
+
+    .topbar-main {
+        gap: 10px;
+    }
+
+    .editor-shell {
+        min-height: calc(100vh - 150px);
+        padding: 18px 18px 48px;
+    }
+
+    .limit-meters {
+        gap: 8px;
+        padding: 0 8px;
+    }
+
+    .limit-meter {
+        width: 92px;
+    }
+
+    .limit-meter-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .documents-link {
+        margin-left: auto;
+    }
+
+    .document-meta {
+        margin-bottom: 34px;
+    }
+
+}

@@ -45,6 +45,7 @@
         const removeLength = end - start;
         block.marks = removeMetadataRanges(block.marks, start, end, removeLength);
         block.links = removeMetadataRanges(block.links, start, end, removeLength);
+        block.references = removeMetadataRanges(block.references, start, end, removeLength);
     }
 
     function normalizeBlockWhitespace(block, cursorOffset = null) {

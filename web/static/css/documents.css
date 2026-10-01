@@ -72,6 +72,33 @@ h1 {
     font: 12px "Avenir Next", "Century Gothic", sans-serif;
 }
 
+.documents-filter {
+    display: flex;
+    justify-content: center;
+    margin: 0 auto 18px;
+}
+
+.documents-search {
+    width: min(100%, 520px);
+    height: 40px;
+    padding: 0 14px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    outline: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 13px "Avenir Next", "Century Gothic", sans-serif;
+}
+
+.documents-search::placeholder {
+    color: var(--muted);
+}
+
+.documents-search:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 .documents-list {
     display: grid;
     gap: 10px;

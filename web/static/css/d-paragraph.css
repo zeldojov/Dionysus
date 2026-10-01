@@ -1,0 +1,113 @@
+d-paragraph {
+    display: block;
+    background: transparent;
+    min-height: 1.7em;
+    min-width: 0;
+    margin: 0;
+    padding: 16px 16px 16px 16px;
+    border-radius: 4px;
+    outline: none;
+    scroll-margin-top: 32px;
+    font-size: 20px;
+    line-height: 1.7;
+    white-space: break-spaces;
+    word-break: normal;
+    overflow-wrap: anywhere;
+    box-shadow: 0 0 0 1px transparent;
+    transition: background .15s ease, box-shadow .15s ease;
+    cursor: text;
+}
+
+d-paragraph:empty::before {
+    content: "\200B";
+}
+
+d-paragraph.is-active {
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+d-paragraph.paragraph-justify {
+    hyphens: auto;
+    hyphenate-character: "-";
+}
+
+d-paragraph:focus {
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+d-paragraph.is-active:focus {
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+d-paragraph d-link {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: none;
+    vertical-align: baseline;
+}
+
+d-paragraph d-link::after {
+    display: inline-block;
+    margin-left: .1em;
+    content: "↗";
+}
+
+d-paragraph d-reference {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: none;
+    vertical-align: baseline;
+}
+
+d-paragraph d-reference::after {
+    display: inline-block;
+    margin-left: .1em;
+    content: "\203B";
+}
+
+.link-modifier-active d-paragraph .paragraph-link-symbol {
+    cursor: pointer;
+}
+
+d-paragraph d-highlight {
+    background: var(--accent-soft);
+    color: var(--ink);
+}
+
+d-paragraph d-color {
+    color: var(--accent);
+}
+
+d-paragraph d-bold {
+    font-weight: 700;
+}
+
+d-paragraph d-italic {
+    font-style: italic;
+}
+
+d-paragraph d-underline {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+}
+
+d-paragraph d-strike {
+    text-decoration: line-through;
+}
+
+d-paragraph d-subscript,
+d-paragraph d-superscript {
+    position: relative;
+    font-size: .72em;
+    line-height: 0;
+    vertical-align: baseline;
+}
+
+d-paragraph d-subscript {
+    bottom: -.25em;
+}
+
+d-paragraph d-superscript {
+    top: -.45em;
+}

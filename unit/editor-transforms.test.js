@@ -6,7 +6,7 @@ const {
     normalizeBlockWhitespace,
     removeMetadataRange,
     splitRanges,
-} = require("../web/static/editor-transforms.js");
+} = require("../web/static/js/editor-transforms.js");
 
 test("normalizeBlockWhitespace trims both edges and preserves inner metadata", () => {
     const block = {

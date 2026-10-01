@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -11,7 +12,7 @@ import (
 	"unicode/utf8"
 )
 
-const currentSchemaVersion = 2
+const currentSchemaVersion = 3
 
 const (
 	maxDocumentBlocks       = 10000
@@ -19,6 +20,7 @@ const (
 	maxDocumentTitleRunes   = 200
 	maxParagraphMarks       = 50
 	maxParagraphLinks       = 20
+	maxParagraphReferences  = 20
 	maxDocumentsPerListPage = 100
 )
 
@@ -28,12 +30,13 @@ type documentPayload struct {
 }
 
 type paragraphBlock struct {
-	ID    string          `json:"id"`
-	Type  string          `json:"type"`
-	Text  string          `json:"text"`
-	Align string          `json:"align,omitempty"`
-	Marks []paragraphMark `json:"marks,omitempty"`
-	Links []paragraphLink `json:"links,omitempty"`
+	ID         string               `json:"id"`
+	Type       string               `json:"type"`
+	Text       string               `json:"text"`
+	Align      string               `json:"align,omitempty"`
+	Marks      []paragraphMark      `json:"marks,omitempty"`
+	Links      []paragraphLink      `json:"links,omitempty"`
+	References []paragraphReference `json:"references,omitempty"`
 }
 
 type paragraphMark struct {
@@ -43,22 +46,28 @@ type paragraphMark struct {
 }
 
 type paragraphLink struct {
+	Start int    `json:"start"`
+	End   int    `json:"end"`
+	URL   string `json:"url,omitempty"`
+}
+
+type paragraphReference struct {
 	Start         int    `json:"start"`
 	End           int    `json:"end"`
 	DocumentID    string `json:"documentId"`
 	TargetBlockID string `json:"blockId"`
-	Reference     bool   `json:"reference,omitempty"`
 }
 
 type documentResponse struct {
-	ID            string          `json:"id"`
-	Title         string          `json:"title"`
-	Slug          string          `json:"slug"`
-	Content       documentPayload `json:"content"`
-	SchemaVersion int             `json:"schemaVersion"`
-	Revision      int64           `json:"revision"`
-	CreatedAt     time.Time       `json:"createdAt"`
-	UpdatedAt     time.Time       `json:"updatedAt"`
+	ID                 string          `json:"id"`
+	Title              string          `json:"title"`
+	Slug               string          `json:"slug"`
+	Content            documentPayload `json:"content"`
+	ReferencedBlockIDs []string        `json:"referencedBlockIds,omitempty"`
+	SchemaVersion      int             `json:"schemaVersion"`
+	Revision           int64           `json:"revision"`
+	CreatedAt          time.Time       `json:"createdAt"`
+	UpdatedAt          time.Time       `json:"updatedAt"`
 }
 
 type documentSummary struct {
@@ -67,6 +76,14 @@ type documentSummary struct {
 	Slug      string    `json:"slug"`
 	Revision  int64     `json:"revision"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type incomingReference struct {
+	ID               int64  `json:"id"`
+	SourceDocumentID string `json:"sourceDocumentId"`
+	SourceDocument   string `json:"sourceDocument"`
+	SourceSlug       string `json:"sourceSlug"`
+	SourceBlockID    string `json:"sourceBlockId"`
 }
 
 type createDocumentRequest struct {
@@ -145,6 +162,9 @@ func (document documentPayload) validate() error {
 		if len(block.Links) > maxParagraphLinks {
 			return fmt.Errorf("paragraph contains too many links; maximum is %d", maxParagraphLinks)
 		}
+		if len(block.References) > maxParagraphReferences {
+			return fmt.Errorf("paragraph contains too many references; maximum is %d", maxParagraphReferences)
+		}
 		switch block.Align {
 		case "", "left", "center", "right", "justify":
 		default:
@@ -156,7 +176,7 @@ func (document documentPayload) validate() error {
 				return fmt.Errorf("invalid paragraph mark range: %d-%d", mark.Start, mark.End)
 			}
 			switch mark.Style {
-			case "bold", "italic", "underline", "strike", "highlight", "subscript", "superscript":
+			case "bold", "italic", "underline", "strike", "highlight", "color", "subscript", "superscript":
 			default:
 				return fmt.Errorf("unsupported paragraph mark style: %s", mark.Style)
 			}
@@ -165,8 +185,20 @@ func (document documentPayload) validate() error {
 			if link.Start < 0 || link.End <= link.Start || link.End > textLength {
 				return fmt.Errorf("invalid paragraph link range: %d-%d", link.Start, link.End)
 			}
-			if link.DocumentID == "" || link.TargetBlockID == "" {
-				return errors.New("paragraph link target is required")
+			if link.URL == "" {
+				return errors.New("paragraph link URL is required")
+			}
+			parsedURL, err := url.Parse(link.URL)
+			if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+				return errors.New("paragraph link URL must be an absolute HTTP or HTTPS URL")
+			}
+		}
+		for _, reference := range block.References {
+			if reference.Start < 0 || reference.End <= reference.Start || reference.End > textLength {
+				return fmt.Errorf("invalid paragraph reference range: %d-%d", reference.Start, reference.End)
+			}
+			if reference.DocumentID == "" || reference.TargetBlockID == "" {
+				return errors.New("paragraph reference target is required")
 			}
 		}
 	}
@@ -176,7 +208,7 @@ func (document documentPayload) validate() error {
 
 func migrateDocument(document documentPayload) (documentPayload, error) {
 	switch document.SchemaVersion {
-	case 1:
+	case 1, 2:
 		document.SchemaVersion = currentSchemaVersion
 		return document, nil
 	case currentSchemaVersion:

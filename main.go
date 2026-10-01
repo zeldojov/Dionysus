@@ -231,6 +231,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("POST /documents", s.createDocument)
 	mux.HandleFunc("GET /documents", s.listDocuments)
+	mux.HandleFunc("GET /documents/{identifier}/blocks/{blockID}/incoming-references", s.listIncomingReferences)
+	mux.HandleFunc("DELETE /documents/{identifier}/blocks/{blockID}/incoming-references/{referenceID}", s.removeIncomingReference)
 	mux.HandleFunc("GET /documents/{identifier}", s.documentRoute)
 	mux.HandleFunc("PATCH /documents/{identifier}/blocks", s.updateBlocks)
 	mux.HandleFunc("PATCH /documents/{identifier}", s.renameDocument)

@@ -97,6 +97,28 @@ func TestDocumentPayloadValidate(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "zero-length reference",
+			doc: documentPayload{
+				SchemaVersion: currentSchemaVersion,
+				Blocks: []paragraphBlock{{
+					ID: "p1", Type: "paragraph", Text: "a",
+					References: []paragraphReference{{Start: 0, End: 0, DocumentID: "doc-1", TargetBlockID: "p2"}},
+				}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "reversed reference range",
+			doc: documentPayload{
+				SchemaVersion: currentSchemaVersion,
+				Blocks: []paragraphBlock{{
+					ID: "p1", Type: "paragraph", Text: "ab",
+					References: []paragraphReference{{Start: 1, End: 0, DocumentID: "doc-1", TargetBlockID: "p2"}},
+				}},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {

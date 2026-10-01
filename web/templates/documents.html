@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Dionysus Documents</title>
-    <link rel="stylesheet" href="/static/documents.css">
+    <link rel="stylesheet" href="/static/css/documents.css">
 </head>
 
 <body>
@@ -18,9 +18,13 @@
             <button id="new-document" class="new-document" type="button">New document</button>
         </header>
         <p id="documents-status" class="documents-status" role="status">Loading documents</p>
+        <div class="documents-filter">
+            <input id="documents-search" class="documents-search" type="search" placeholder="Filter documents..."
+                aria-label="Filter documents" autocomplete="off">
+        </div>
         <section id="documents-list" class="documents-list" aria-label="Documents"></section>
     </main>
-    <script src="/static/documents.js" defer></script>
+    <script src="/static/js/documents.js" defer></script>
 </body>
 
 </html>

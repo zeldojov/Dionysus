@@ -1,9 +1,12 @@
 const documentsList = document.querySelector("#documents-list");
 const documentsStatus = document.querySelector("#documents-status");
+const documentsSearch = document.querySelector("#documents-search");
 const newDocumentButton = document.querySelector("#new-document");
+let loadedDocuments = [];
 
 document.addEventListener("DOMContentLoaded", loadDocuments);
 newDocumentButton.addEventListener("click", createDocument);
+documentsSearch.addEventListener("input", () => renderDocuments(loadedDocuments));
 
 async function loadDocuments() {
     try {
@@ -14,8 +17,8 @@ async function loadDocuments() {
             throw new Error(`Load documents failed: ${response.status}`);
         }
 
-        const documents = await response.json();
-        renderDocuments(documents);
+        loadedDocuments = await response.json();
+        renderDocuments(loadedDocuments);
     } catch (error) {
         console.error(error);
         documentsStatus.textContent = "Unable to load documents";
@@ -45,12 +48,23 @@ async function createDocument() {
 }
 
 function renderDocuments(documents) {
-    documentsList.replaceChildren();
-    documentsStatus.textContent = documents.length === 0
-        ? "No documents yet"
-        : `${documents.length} document${documents.length === 1 ? "" : "s"}`;
+    const query = normalizeSearchText(documentsSearch.value.trim());
+    const visibleDocuments = query
+        ? documents
+            .map((documentState) => ({ documentState, score: scoreDocument(documentState, query) }))
+            .filter((entry) => entry.score > 0)
+            .sort((left, right) => right.score - left.score)
+            .map((entry) => entry.documentState)
+        : documents;
 
-    for (const documentState of documents) {
+    documentsList.replaceChildren();
+    documentsStatus.textContent = visibleDocuments.length === 0
+        ? query ? "No matching documents" : "No documents yet"
+        : query
+            ? `${visibleDocuments.length} of ${documents.length} documents`
+            : `${documents.length} document${documents.length === 1 ? "" : "s"}`;
+
+    for (const documentState of visibleDocuments) {
         const card = document.createElement("article");
         card.className = "document-card";
 
@@ -71,7 +85,6 @@ function renderDocuments(documents) {
         date.className = "document-card-date";
         date.dateTime = documentState.updatedAt;
         date.textContent = formatDate(documentState.updatedAt);
-
         link.append(details, date);
 
         const actions = document.createElement("div");
@@ -93,6 +106,43 @@ function renderDocuments(documents) {
         card.append(link, actions);
         documentsList.append(card);
     }
+}
+
+function normalizeSearchText(value) {
+    return value.toLocaleLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function fuzzyScore(value, query) {
+    let queryIndex = 0;
+    let gapScore = 0;
+    for (let valueIndex = 0; valueIndex < value.length && queryIndex < query.length; valueIndex += 1) {
+        if (value[valueIndex] === query[queryIndex]) {
+            queryIndex += 1;
+        } else if (queryIndex > 0) {
+            gapScore += 1;
+        }
+    }
+    return queryIndex === query.length ? 100 - gapScore : 0;
+}
+
+function scoreDocument(documentState, query) {
+    const title = normalizeSearchText(documentState.title);
+    const slug = normalizeSearchText(documentState.slug);
+    const titleScore = title === query
+        ? 1000
+        : title.startsWith(query)
+            ? 800 - title.indexOf(query)
+            : title.includes(query)
+                ? 600 - title.indexOf(query)
+                : fuzzyScore(title, query) * 3;
+    const slugScore = slug === query
+        ? 200
+        : slug.startsWith(query)
+            ? 140
+            : slug.includes(query)
+                ? 100
+                : fuzzyScore(slug, query);
+    return Math.max(titleScore, slugScore);
 }
 
 async function renameDocument(documentState, button) {

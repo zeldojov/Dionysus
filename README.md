@@ -33,10 +33,10 @@ CREATE DATABASE dionysus OWNER dionysus_app;
 Apply migrations in order:
 
 ```bash
-psql "postgres://dionysus_app:dionysus@127.0.0.1:5432/dionysus?sslmode=disable" \
-	-f migrations/001_create_documents.sql
-psql "postgres://dionysus_app:dionysus@127.0.0.1:5432/dionysus?sslmode=disable" \
-	-f migrations/002_add_document_title_slug.sql
+for migration in migrations/*.sql; do
+	psql "postgres://dionysus_app:dionysus@127.0.0.1:5432/dionysus?sslmode=disable" \
+		-f "$migration"
+done
 ```
 
 For local development, `APP_ENV` defaults to `development`. If the database
